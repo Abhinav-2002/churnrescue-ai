@@ -3,8 +3,16 @@ import { getDb } from '@/lib/db';
 import { createOrder, captureOrder } from '@/lib/paypal';
 import { handlePaymentFailed } from '@/lib/failures';
 import crypto from 'crypto';
+import { rateLimit } from '@/lib/rate-limit';
 
 export async function POST(request: Request) {
+  if (process.env.DEMO_MODE !== '1') {
+    return NextResponse.json({ error: 'Not Found' }, { status: 404 });
+  }
+
+  const limited = rateLimit(request, 10, 60 * 1000);
+  if (limited) return limited;
+
   try {
     const { customerId } = await request.json();
     if (!customerId) return NextResponse.json({ error: 'Missing customerId' }, { status: 400 });
@@ -56,6 +64,6 @@ export async function POST(request: Request) {
     }
   } catch (error: any) {
     console.error('Simulate failure error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

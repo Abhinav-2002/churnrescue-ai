@@ -74,6 +74,6 @@ export async function GET(req: Request) {
       ...(recoveredAmountCents !== null && { recoveredAmountCents })
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

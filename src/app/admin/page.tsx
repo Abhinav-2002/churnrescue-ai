@@ -4,6 +4,9 @@ import AdminClientPage from './AdminClientPage';
 export const dynamic = 'force-dynamic';
 
 export default async function AdminPage() {
+  if (process.env.DEMO_MODE !== '1') {
+    return <div className="p-10 text-center font-bold text-red-600">Admin panel disabled (DEMO_MODE is not 1).</div>;
+  }
   const db = getDb();
   
   const customers = db.prepare('SELECT * FROM customers').all() as any[];

@@ -1,3 +1,4 @@
+process.env.DEMO_MODE = '1';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { getDb, resetDb } from '@/lib/db';
 import { handlePaymentFailed } from '@/lib/failures';

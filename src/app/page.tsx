@@ -131,7 +131,7 @@ export default function Home() {
   async function sendMessage(text: string) {
     if (!text.trim() || !selectedCustomer) return;
     
-    const newMsg = { role: 'user', text };
+    const newMsg = { role: 'customer', text };
     setMessages(prev => [...prev, newMsg]);
     setInput('');
     setTyping(true);
@@ -290,8 +290,8 @@ export default function Home() {
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {loading && <div className="text-center text-gray-500">Loading conversation...</div>}
               {messages.map((m, i) => (
-                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[80%] rounded-lg p-3 ${m.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
+                <div key={i} className={`flex ${m.role === 'customer' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[80%] rounded-lg p-3 ${m.role === 'customer' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
                     {m.text}
                   </div>
                 </div>

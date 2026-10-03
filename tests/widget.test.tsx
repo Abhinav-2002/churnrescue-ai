@@ -20,6 +20,7 @@ window.HTMLElement.prototype.scrollIntoView = vi.fn();
 describe('Widget Smoke Test', () => {
   afterEach(() => {
     cleanup();
+    usePayPalMock.mockReturnValue({ loadingStatus: 'resolved' });
   });
   beforeEach(() => {
     mockFetch.mockReset();
@@ -93,7 +94,7 @@ describe('Widget Smoke Test', () => {
           ok: true,
           json: () => Promise.resolve({
             customer: { status: 'recovered' },
-            messages: [{ role: 'agent', text: 'Hello, your payment failed.' }, { role: 'user', text: 'Yes' }, { role: 'agent', text: 'Success' }],
+            messages: [{ role: 'agent', text: 'Hello, your payment failed.' }, { role: 'customer', text: 'Yes' }, { role: 'agent', text: 'Success' }],
             nextStep: 'none',
             recoveredAmountCents: 4000
           })
