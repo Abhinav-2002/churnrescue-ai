@@ -66,7 +66,7 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch('/api/admin/seed', { method: 'POST' }).then(() => loadCustomers());
+    fetch('/api/reset', { method: 'POST' }).then(() => loadCustomers());
   }, []);
 
   useEffect(() => {
@@ -74,7 +74,7 @@ export default function Home() {
   }, [messages, systemMsg, nextStep]);
 
   async function loadCustomers() {
-    const res = await fetch('/api/admin/customers');
+    const res = await fetch('/api/customers');
     const data = await res.json();
     setCustomers(data);
   }
@@ -232,7 +232,7 @@ export default function Home() {
             </select>
             <button 
               onClick={async () => {
-                await fetch('/api/admin/reset', { method: 'POST' });
+                await fetch('/api/reset', { method: 'POST' });
                 await loadCustomers();
                 setSelectedCustomer(null);
                 setMessages([]);
@@ -245,6 +245,32 @@ export default function Home() {
             </button>
           </div>
         </div>
+
+        {selectedCustomer && selectedCustomer.status === 'healthy' && (
+          <div className="bg-white rounded-lg shadow-lg border border-gray-200 p-6 text-center">
+            <h2 className="text-xl font-medium mb-4">Customer is healthy</h2>
+            <button 
+              onClick={async () => {
+                await fetch('/api/simulate-failure', { 
+                  method: 'POST', 
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ customerId: selectedCustomer.id })
+                });
+                const res = await fetch('/api/customers');
+                const data = await res.json();
+                setCustomers(data);
+                const updatedC = data.find((x: any) => x.id === selectedCustomer.id);
+                setSelectedCustomer(updatedC);
+                if (updatedC?.status === 'at_risk') {
+                  loadState(updatedC.id);
+                }
+              }}
+              className="bg-red-600 text-white px-6 py-2 rounded font-medium hover:bg-red-700"
+            >
+              Simulate Failed Renewal
+            </button>
+          </div>
+        )}
 
         {selectedCustomer && selectedCustomer.status === 'at_risk' && (
           <div className="bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden flex flex-col h-[600px]">
