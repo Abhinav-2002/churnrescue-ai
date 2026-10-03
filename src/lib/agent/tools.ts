@@ -96,9 +96,9 @@ export async function createOrderInternal(offerId: string) {
     const resString = typeof resRaw === 'string' ? resRaw : JSON.stringify(resRaw);
     const res = JSON.parse(resString);
     const status = res.status ? res.status.toLowerCase() : 'created';
-    console.log("DEBUG res.status:", res.status, "status to insert:", status);
-    db.prepare('UPDATE offers SET paypal_order_id = ?, paypal_order_status = ? WHERE id = ?').run(
-      res.id, status, offerId
+        const approveLink = res.links?.find((l: any) => l.rel === 'approve' || l.rel === 'payer-action')?.href || null;
+    db.prepare('UPDATE offers SET paypal_order_id = ?, paypal_order_status = ?, paypal_approve_url = ? WHERE id = ?').run(
+      res.id, status, approveLink, offerId
     );
     return res.id;
   } catch (e) {

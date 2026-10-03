@@ -56,7 +56,7 @@ If usage_percent >= 60, retry only.
   
   const start = Date.now();
   const result = await structuredLlm.invoke([{ role: 'system', content: sysMsg }, ...state.messages]);
-  console.log(`[Timer] decide: ${Date.now() - start}ms`);
+  if (process.env.DEBUG_TIMING === '1') console.log(`[Timer] decide: ${Date.now() - start}ms`);
   return { intent: result.intent, decision: result.proposal };
 }
 
