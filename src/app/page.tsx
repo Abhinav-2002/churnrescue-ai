@@ -112,9 +112,14 @@ export default function Home() {
           body: JSON.stringify({ customerId: cId })
         });
         const startData = await startRes.json();
-        setMessages(startData.messages || []);
-        setNextStep(startData.nextStep || 'none');
-        setOfferInfo({ offerId: startData.offerId, orderId: startData.orderId });
+        
+        // Re-fetch state to get full messages list
+        const sRes = await fetch(`/api/agent/state?customerId=${cId}`);
+        const sData = await sRes.json();
+        
+        setMessages(sData.messages || []);
+        setNextStep(sData.nextStep || 'none');
+        setOfferInfo({ offerId: sData.offerId, orderId: sData.orderId });
         setTyping(false);
       }
     } catch (e) {
@@ -142,9 +147,13 @@ export default function Home() {
       if (!res.ok) {
         setSystemMsg({ kind: 'error', text: data.error || 'Failed to send' });
       } else {
-        setMessages(data.messages || []);
-        setNextStep(data.nextStep || 'none');
-        setOfferInfo({ offerId: data.offerId, orderId: data.orderId });
+        // Re-fetch state to get full messages list
+        const sRes = await fetch(`/api/agent/state?customerId=${selectedCustomer.id}`);
+        const sData = await sRes.json();
+        
+        setMessages(sData.messages || []);
+        setNextStep(sData.nextStep || 'none');
+        setOfferInfo({ offerId: sData.offerId, orderId: sData.orderId });
       }
     } catch (e) {
       setSystemMsg({ kind: 'error', text: 'Network error' });
