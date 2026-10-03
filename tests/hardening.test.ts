@@ -67,11 +67,22 @@ describe('Stage 5.7 Hardening', () => {
       getDb().prepare(`INSERT INTO billing_events (id, customer_id, type, amount_cents, status) VALUES ('be_1', 'c_1', 'invoice', 5000, 'failed')`).run();
       getDb().prepare(`INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, status) VALUES ('off_limit', 'c_1', 'be_1', 'partial_credit', 4000, 'accepted')`).run();
       
-      const requests = Array.from({ length: 35 }, () => CapturePost(mockReq('http://localhost/capture', '127.0.0.99', {}), { params: { offerId: 'off_limit' } }));
+      const requests = Array.from({ length: 130 }, () => CapturePost(mockReq('http://localhost/capture', '127.0.0.99', {}), { params: { offerId: 'off_limit' } }));
       const results = await Promise.all(requests);
       
       const limitExceeded = results.some(r => r.status === 429);
       expect(limitExceeded).toBe(true);
+    });
+
+    it('10 requests from unknown IP within the global cap all succeed', async () => {
+      // Simulate-failure limit is global 60, per-ip 60. Unknown IP means no 'x-forwarded-for' header or invalid one.
+      const requests = Array.from({ length: 10 }, () => {
+        const req = new Request('http://localhost/api/simulate-failure', { method: 'POST', body: JSON.stringify({ customerId: 'c_1' }) });
+        return SimulatePost(req);
+      });
+      const results = await Promise.all(requests);
+      const allSucceeded = results.every(r => r.status === 200);
+      expect(allSucceeded).toBe(true);
     });
   });
 

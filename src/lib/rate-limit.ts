@@ -31,11 +31,11 @@ export interface LimitSpec {
 }
 
 export const LIMITS = {
-  reset: { name: 'reset', globalPerWindow: 20, perIpPerWindow: 5, windowMs: 60_000 },
-  simulateFailure: { name: 'simulate-failure', globalPerWindow: 60, perIpPerWindow: 10, windowMs: 60_000 },
-  agentStart: { name: 'agent-start', globalPerWindow: 60, perIpPerWindow: 20, windowMs: 60_000 },
-  agentMessage: { name: 'agent-message', globalPerWindow: 120, perIpPerWindow: 20, windowMs: 60_000 },
-  capture: { name: 'capture', globalPerWindow: 120, perIpPerWindow: 30, windowMs: 60_000 },
+  reset: { name: 'reset', globalPerWindow: 20, perIpPerWindow: 20, windowMs: 60_000 },
+  simulateFailure: { name: 'simulate-failure', globalPerWindow: 60, perIpPerWindow: 60, windowMs: 60_000 },
+  agentStart: { name: 'agent-start', globalPerWindow: 60, perIpPerWindow: 60, windowMs: 60_000 },
+  agentMessage: { name: 'agent-message', globalPerWindow: 120, perIpPerWindow: 120, windowMs: 60_000 },
+  capture: { name: 'capture', globalPerWindow: 120, perIpPerWindow: 120, windowMs: 60_000 },
 } satisfies Record<string, LimitSpec>;
 
 type Bucket = { count: number; resetAt: number };
