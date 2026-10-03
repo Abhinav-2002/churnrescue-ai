@@ -94,7 +94,7 @@ Intent: ${state.intent}. Action: ${state.decision?.action}.
 DO NOT include any links or URLs. 
 If making an offer, ask "Would you like to proceed?" and DO NOT mention a checkout button.
 If the customer accepted (intent=accept), tell them a checkout button is provided below (except for 'pause').
-Compose a polite response to the customer based on the action.`;
+Compose a polite response to the customer based on the action. If escalating, tell them exactly: "Your account has been flagged for our billing team, and a specialist will follow up with you by email shortly."`;
 
   let response = await llm.invoke([{ role: 'system', content: sysMsg }, ...state.messages]);
   let finalMessages = state.messages.concat([response]);
@@ -121,7 +121,7 @@ Compose a polite response to the customer based on the action.`;
       } else if (state.decision?.action === 'pause') {
         lastMsg = `Your subscription will be paused with no charge. Please confirm if you want to proceed.`;
       } else if (state.decision?.action === 'escalate') {
-        lastMsg = `A human will follow up.`;
+        lastMsg = `Your account has been flagged for our billing team, and a specialist will follow up with you by email shortly.`;
       } else {
         lastMsg = `We can offer a new amount of ${newStr}. Would you like to proceed?`;
       }
