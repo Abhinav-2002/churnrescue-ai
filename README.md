@@ -1,3 +1,16 @@
+## Environment Variables
+Required variables for deployment:
+- PAYPAL_CLIENT_ID 
+- PAYPAL_CLIENT_SECRET 
+- PAYPAL_BASE_URL (e.g. https://api-m.sandbox.paypal.com)
+- NEXT_PUBLIC_PAYPAL_CLIENT_ID 
+- GOOGLE_CLOUD_PROJECT 
+- GOOGLE_CLOUD_LOCATION (global)
+- LLM_MODEL 
+- GOOGLE_CREDENTIALS_JSON 
+- DEMO_MODE (1)
+- DAILY_LLM_CALL_LIMIT (500)
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
@@ -37,3 +50,4 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 ## Demo Limitation
 For the hosted judging demo, the application uses a single shared SQLite database. If two judges use the demo simultaneously, running `Reset` will wipe the session for both. It is recommended to coordinate or be aware of this behavior during evaluation.
+

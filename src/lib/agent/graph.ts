@@ -19,7 +19,9 @@ const GraphState = Annotation.Root({
 
 function getLlm(modelId: string) {
   const location = process.env.GOOGLE_CLOUD_LOCATION || 'global';
+  const credentialsJson = process.env.GOOGLE_CREDENTIALS_JSON;
   return new ChatVertexAI({
+    ...(credentialsJson ? { authOptions: { credentials: JSON.parse(credentialsJson) } } : {}),
     model: modelId,
     location,
     project: process.env.GOOGLE_CLOUD_PROJECT,
@@ -216,3 +218,4 @@ export const graph = new StateGraph(GraphState)
   .addEdge('compose_message', 'persist')
   .addEdge('persist', END)
   .compile();
+
