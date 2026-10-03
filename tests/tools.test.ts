@@ -1,3 +1,4 @@
+vi.mock('@paypal/agent-toolkit/langchain', () => ({ PayPalAgentToolkit: class { getTools() { return [{ name: 'create_order', invoke: async () => JSON.stringify({id:'mock', status:'created'}) }]; } } }));
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { create_recovery_order } from '../src/lib/agent/tools';
 import { getDb, seedDb } from '../src/lib/db';

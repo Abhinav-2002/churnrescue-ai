@@ -13,7 +13,7 @@ export async function POST(req: Request) {
     if (!customer) return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
     if (customer.status === 'healthy') return NextResponse.json({ error: 'Customer is healthy' }, { status: 400 });
 
-    const billingEvent = db.prepare('SELECT id FROM billing_events WHERE customer_id = ? AND status = "failed" ORDER BY created_at DESC LIMIT 1').get(customerId) as any;
+    const billingEvent = db.prepare(`SELECT id FROM billing_events WHERE customer_id = ? AND status = 'failed' ORDER BY created_at DESC LIMIT 1`).get(customerId) as any;
     if (!billingEvent) return NextResponse.json({ error: 'No failed billing event found' }, { status: 400 });
 
     const state = {
@@ -28,13 +28,27 @@ export async function POST(req: Request) {
     ]) as any;
 
     const lastMsg = out.messages[out.messages.length - 1].content;
-    const activeOffer = db.prepare('SELECT id, paypal_order_id FROM offers WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customerId) as any;
+    const dbOut = getDb();
+    const latestOffer = dbOut.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customerId) as any;
     
-    return NextResponse.json({ 
-      reply: lastMsg, 
-      offerId: activeOffer?.id, 
-      orderId: activeOffer?.paypal_order_id 
-    });
+    let nextStep = 'none';
+    let responseObj: any = { reply: lastMsg, nextStep };
+
+    if (out.intent === 'escalate' || out.decision?.action === 'escalate') {
+      responseObj.nextStep = 'escalated';
+    } else if (latestOffer) {
+      if (latestOffer.kind === 'pause' && latestOffer.status === 'pending') {
+        responseObj.nextStep = 'confirm_pause';
+        responseObj.offerId = latestOffer.id;
+      } else if (latestOffer.status === 'accepted' && latestOffer.paypal_order_id && latestOffer.amount_cents > 0) {
+        responseObj.nextStep = 'pay';
+        responseObj.offerId = latestOffer.id;
+        responseObj.orderId = latestOffer.paypal_order_id;
+        responseObj.amountCents = latestOffer.amount_cents;
+      }
+    }
+    
+    return NextResponse.json(responseObj);
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

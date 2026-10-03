@@ -52,7 +52,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Conversation limit reached.' }, { status: 400 });
     }
 
-    const billingEvent = db.prepare('SELECT id FROM billing_events WHERE customer_id = ? AND status = "failed" ORDER BY created_at DESC LIMIT 1').get(customerId) as any;
+    const billingEvent = db.prepare(`SELECT id FROM billing_events WHERE customer_id = ? AND status = 'failed' ORDER BY created_at DESC LIMIT 1`).get(customerId) as any;
     if (!billingEvent) {
       return NextResponse.json({ error: 'No failed billing event found' }, { status: 400 });
     }
@@ -74,13 +74,34 @@ export async function POST(req: Request) {
     ]) as any;
 
     const lastMsg = out.messages[out.messages.length - 1].content;
-    const activeOffer = db.prepare('SELECT id, paypal_order_id FROM offers WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customerId) as any;
+    const dbOut = getDb();
+    const latestOffer = dbOut.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customerId) as any;
     
-    return NextResponse.json({ 
-      reply: lastMsg, 
-      offerId: activeOffer?.id, 
-      orderId: activeOffer?.paypal_order_id 
-    });
+    let nextStep = 'none';
+    let responseObj: any = { reply: lastMsg, nextStep };
+
+    if (out.intent === 'escalate' || out.decision?.action === 'escalate') {
+      responseObj.nextStep = 'escalated';
+    } else if (latestOffer) {
+      if (latestOffer.kind === 'pause' && latestOffer.status === 'pending') {
+        responseObj.nextStep = 'confirm_pause';
+        responseObj.offerId = latestOffer.id;
+      } else if (latestOffer.status === 'accepted' && latestOffer.paypal_order_id && latestOffer.amount_cents > 0) {
+        responseObj.nextStep = 'pay';
+        responseObj.offerId = latestOffer.id;
+        responseObj.orderId = latestOffer.paypal_order_id;
+        responseObj.amountCents = latestOffer.amount_cents;
+      } else if (latestOffer.status === 'pending' && latestOffer.kind !== 'pause') {
+        // Offer is made but not accepted yet, waiting for user to say yes.
+        // Wait, the instructions say:
+        // "offerId and orderId only when the offer is accepted AND (for pay) an order exists."
+        // So we don't return them if pending (except for pause which uses confirm_pause without an order).
+        // Wait! How does the frontend know there is an offer to accept? The LLM asked them.
+        // Or if the LLM says "we can offer $20, say yes", the nextStep is just 'none'.
+      }
+    }
+    
+    return NextResponse.json(responseObj);
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
