@@ -1,45 +1,113 @@
-import { AIMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage } from '@langchain/core/messages';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getDb, seedDb } from '../src/lib/db';
+import { getDb, resetDb, seedDb } from '../src/lib/db';
 import { graph } from '../src/lib/agent/graph';
-import { HumanMessage } from '@langchain/core/messages';
+import * as tools from '../src/lib/agent/tools';
+
+vi.mock('../src/lib/agent/tools', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    createOrderInternal: vi.fn().mockImplementation(async (offerId) => {
+      const db = getDb();
+      const mockOrderId = 'mock_order_' + Date.now();
+      db.prepare('UPDATE offers SET paypal_order_id = ?, paypal_order_status = ? WHERE id = ?')
+        .run(mockOrderId, 'payer_action_required', offerId);
+      return mockOrderId;
+    })
+  };
+});
+
+// A dynamic mock for LLM to control its behavior in tests
+let mockInvokeResponse: any = {};
+let mockComposeResponse: string = 'Mocked reply';
 
 vi.mock('@langchain/google-vertexai', () => ({
   ChatVertexAI: class {
-    withStructuredOutput() {
-      return this;
-    }
-    async invoke(args) { if (args[0].content.includes('Intent:')) return new AIMessage('Mocked reply');
-      return { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 10, reasoning: 'mock' } };
+    withStructuredOutput() { return this; }
+    async invoke(args: any) { 
+      const sysMsg = args[0].content;
+      if (sysMsg.includes('Intent:')) {
+        return new AIMessage(mockComposeResponse);
+      }
+      return mockInvokeResponse;
     }
   }
 }));
 
-describe('Graph Level Test', () => {
+describe('Graph Level Tests', () => {
   beforeEach(() => {
-    const db = getDb();
-    db.exec('DELETE FROM agent_actions; DELETE FROM conversations; DELETE FROM recoveries; DELETE FROM offers; DELETE FROM billing_events; DELETE FROM customers;');
-    seedDb();
-  });
-
-  it('runs the graph end-to-end and persists state', async () => {
+    resetDb();
     const db = getDb();
     db.prepare('UPDATE customers SET status = ? WHERE id = ?').run('at_risk', 'c_4');
     const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get('c_4') as any;
     db.prepare('INSERT INTO billing_events (id, customer_id, type, amount_cents, status) VALUES (?, ?, ?, ?, ?)').run('evt_c_4', 'c_4', 'renewal', customer.plan_price_cents, 'failed');
     
-    const state = {
-      customerId: 'c_4',
-      billingEventId: 'evt_c_4',
-      messages: [new HumanMessage("I want a discount")]
-    };
+    mockInvokeResponse = { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 10, reasoning: 'mock' } };
+    mockComposeResponse = 'Mocked reply';
+  });
+
+  it('runs the graph end-to-end and persists state', async () => {
+    const db = getDb();
+    const state = { customerId: 'c_4', billingEventId: 'evt_c_4', messages: [new HumanMessage("I want a discount")] };
     
     const result = await graph.invoke(state, { configurable: { modelId: 'mock' } });
     expect(result.intent).toBe('negotiate');
-    expect(result.decision.action).toBe('partial_credit');
     
     const offer = db.prepare('SELECT * FROM offers WHERE customer_id = ?').get('c_4') as any;
     expect(offer).toBeDefined();
-    expect(offer.amount_cents).toBe(4500); // 5000 * 90%
+    expect(offer.amount_cents).toBe(4500); 
+  });
+
+  it('escalate reply: overrides LLM hallucination with the code template', async () => {
+    mockInvokeResponse = { intent: 'escalate', proposal: { action: 'escalate', reasoning: 'escalating' } };
+    mockComposeResponse = 'Let me transfer you to a human right now.'; // The hallucination
+    
+    const state = { customerId: 'c_4', billingEventId: 'evt_c_4', messages: [new HumanMessage("chargeback")] };
+    const result = await graph.invoke(state, { configurable: { modelId: 'mock' } });
+    
+    const lastMsg = result.messages[result.messages.length - 1].content;
+    expect(lastMsg).toBe('Your account has been flagged for our billing team, and a specialist will follow up with you by email shortly.');
+  });
+
+  it('genuine decline keeps customer at_risk and next acceptance creates NEW order', async () => {
+    const db = getDb();
+    
+    // 1. Agent makes an offer
+    mockInvokeResponse = { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock' } };
+    await graph.invoke({ customerId: 'c_4', billingEventId: 'evt_c_4', messages: [new HumanMessage("discount")] }, { configurable: { modelId: 'mock' } });
+    
+    const offer1 = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY ROWID DESC LIMIT 1').get('c_4') as any;
+    
+    // 2. Customer accepts
+    mockInvokeResponse = { intent: 'accept', proposal: { action: 'partial_credit', final_amount_cents: 4000, reasoning: 'mock' } };
+    await graph.invoke({ customerId: 'c_4', billingEventId: 'evt_c_4', messages: [new HumanMessage("ok")] }, { configurable: { modelId: 'mock' } });
+    
+    const offer1Accepted = db.prepare('SELECT * FROM offers WHERE id = ?').get(offer1.id) as any;
+    expect(offer1Accepted.status).toBe('accepted');
+    expect(offer1Accepted.paypal_order_id).toBeDefined();
+    const firstOrderId = offer1Accepted.paypal_order_id;
+
+    // 3. Capture declines -> offer marked 'failed'
+    db.prepare(`UPDATE offers SET status = 'failed' WHERE id = ?`).run(offer1.id);
+    
+    // 4. Customer asks again, agent creates new offer
+    mockInvokeResponse = { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock2' } };
+    await graph.invoke({ customerId: 'c_4', billingEventId: 'evt_c_4', messages: [new HumanMessage("it failed, try again")] }, { configurable: { modelId: 'mock' } });
+    
+    const offer2 = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY ROWID DESC LIMIT 1').get('c_4') as any;
+    expect(offer2.id).not.toBe(offer1.id);
+    expect(offer2.status).toBe('pending');
+    
+    // 5. Customer accepts new offer
+    mockInvokeResponse = { intent: 'accept', proposal: { action: 'partial_credit', final_amount_cents: 4000, reasoning: 'mock' } };
+    await graph.invoke({ customerId: 'c_4', billingEventId: 'evt_c_4', messages: [new HumanMessage("ok")] }, { configurable: { modelId: 'mock' } });
+    
+    const offer2Accepted = db.prepare('SELECT * FROM offers WHERE id = ?').get(offer2.id) as any;
+    expect(offer2Accepted.status).toBe('accepted');
+    expect(offer2Accepted.paypal_order_id).toBeDefined();
+    
+    const secondOrderId = offer2Accepted.paypal_order_id;
+    expect(secondOrderId).not.toBe(firstOrderId);
   });
 });

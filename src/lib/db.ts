@@ -124,6 +124,7 @@ function migrateOffers(db: Database.Database) {
   add('discount_percent', 'discount_percent INTEGER NULL CHECK(discount_percent IS NULL OR (discount_percent >= 0 AND discount_percent <= 50))');
   add('target_plan', 'target_plan TEXT NULL');
   add('accepted_at', 'accepted_at TEXT NULL');
+  add('capturing_at', 'capturing_at TEXT NULL');
 }
 
 export function seedDb() {

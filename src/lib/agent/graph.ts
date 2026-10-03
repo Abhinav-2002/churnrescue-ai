@@ -106,7 +106,9 @@ Compose a polite response to the customer based on the action. If escalating, te
   const allowed = state.customerContext?.plan_price_cents ? [state.customerContext.plan_price_cents] : [];
   const { ok } = checkMessageAmounts(lastMsg, required, allowed);
   
-  if (!ok) {
+  if (state.intent === 'escalate' || state.decision?.action === 'escalate') {
+    lastMsg = `Your account has been flagged for our billing team, and a specialist will follow up with you by email shortly.`;
+  } else if (!ok) {
     const priceStr = state.customerContext?.plan_price_cents ? formatDollars(state.customerContext.plan_price_cents) : '';
     const newStr = required ? formatDollars(required) : '';
     if (state.intent === 'accept') {
