@@ -3,11 +3,11 @@ import { captureOrder } from '@/lib/paypal';
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  context: any
 ) {
   try {
     const { forceDecline } = await request.json().catch(() => ({ forceDecline: false }));
-    const orderId = params.id;
+    const { id: orderId } = await context.params;
 
     const { status, body } = await captureOrder(orderId, { forceDecline });
     

@@ -4,11 +4,13 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 import React from 'react';
 import Home from '../src/app/page';
 
-vi.mock('@paypal/react-paypal-js', () => ({
-  PayPalScriptProvider: ({ children }: any) => <div>{children}</div>,
-  usePayPal: () => ({ loadingStatus: 'resolved' }),
+export const usePayPalMock = vi.fn(() => ({ loadingStatus: 'resolved' }));
+
+vi.mock('@paypal/react-paypal-js/sdk-v6', () => ({
+  PayPalProvider: ({ children }: any) => <div>{children}</div>,
+  usePayPal: () => usePayPalMock(),
   PayPalOneTimePaymentButton: () => <div data-testid="paypal-button">PayPal Button</div>,
-  INSTANCE_LOADING_STATE: { PENDING: 'pending', RESOLVED: 'resolved' }
+  INSTANCE_LOADING_STATE: { PENDING: 'pending', RESOLVED: 'resolved', REJECTED: 'rejected' }
 }));
 
 const mockFetch = vi.fn();
@@ -112,6 +114,74 @@ describe('Widget Smoke Test', () => {
       expect(screen.getByText(/Captured: \$40\.00/)).toBeTruthy();
       expect(screen.queryByPlaceholderText('Type your message...')).toBeNull();
       expect(screen.queryByText('Yes, proceed')).toBeNull();
+    });
+  });
+
+  it('renders the PayPal button area for nextStep pay', async () => {
+    mockFetch.mockImplementation((url) => {
+      if (url === '/api/customers') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([{ id: 'c_1', name: 'Diana', status: 'at_risk' }])
+        });
+      }
+      if (url.startsWith('/api/agent/state')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            customer: { status: 'at_risk' },
+            messages: [],
+            nextStep: 'pay',
+            offerId: 'off_123',
+            orderId: 'ord_123',
+            amountCents: 4000
+          })
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    render(<Home />);
+    await waitFor(() => expect((screen.getByRole('combobox') as HTMLSelectElement).children.length).toBeGreaterThan(1));
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'c_1' } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('paypal-button')).toBeTruthy();
+    });
+  });
+
+  it('shows friendly message when PayPal is rejected', async () => {
+    usePayPalMock.mockReturnValue({ loadingStatus: 'rejected' });
+    
+    mockFetch.mockImplementation((url) => {
+      if (url === '/api/customers') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([{ id: 'c_1', name: 'Diana', status: 'at_risk' }])
+        });
+      }
+      if (url.startsWith('/api/agent/state')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            customer: { status: 'at_risk' },
+            messages: [],
+            nextStep: 'pay',
+            offerId: 'off_123',
+            orderId: 'ord_123',
+            amountCents: 4000
+          })
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    render(<Home />);
+    await waitFor(() => expect((screen.getByRole('combobox') as HTMLSelectElement).children.length).toBeGreaterThan(1));
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'c_1' } });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to load payment options/i)).toBeTruthy();
     });
   });
 });

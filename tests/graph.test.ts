@@ -5,7 +5,7 @@ import { graph } from '../src/lib/agent/graph';
 import * as tools from '../src/lib/agent/tools';
 
 vi.mock('../src/lib/agent/tools', async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<any>();
   return {
     ...actual,
     createOrderInternal: vi.fn().mockImplementation(async (offerId) => {
@@ -122,7 +122,7 @@ describe('Graph Level Tests', () => {
     const db = getDb();
     
     let result = await graph.invoke({
-      messages: [{ role: 'user', content: 'discount please' }],
+      messages: [new HumanMessage('discount please')],
       customerId: 'c_4',
       billingEventId: 'evt_c_4',
       customerContext: null,
@@ -136,7 +136,7 @@ describe('Graph Level Tests', () => {
     // Accept
     mockInvokeResponse = { intent: 'accept', proposal: { action: 'partial_credit', final_amount_cents: 4000, reasoning: 'mock' } };
     result = await graph.invoke({
-      messages: result.messages.concat([{ role: 'user', content: 'yes' }]),
+      messages: result.messages.concat([new HumanMessage('yes')]),
       customerId: 'c_4',
       billingEventId: 'evt_c_4',
       customerContext: null,
@@ -151,7 +151,7 @@ describe('Graph Level Tests', () => {
     // Can I get the offer again?
     mockInvokeResponse = { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock2' } };
     result = await graph.invoke({
-      messages: result.messages.concat([{ role: 'user', content: 'Can I get the offer again?' }]),
+      messages: result.messages.concat([new HumanMessage('Can I get the offer again?')]),
       customerId: 'c_4',
       billingEventId: 'evt_c_4',
       customerContext: null,
@@ -166,7 +166,7 @@ describe('Graph Level Tests', () => {
     // Accept again
     mockInvokeResponse = { intent: 'accept', proposal: { action: 'partial_credit', final_amount_cents: 4000, reasoning: 'mock' } };
     result = await graph.invoke({
-      messages: result.messages.concat([{ role: 'user', content: 'yes' }]),
+      messages: result.messages.concat([new HumanMessage('yes')]),
       customerId: 'c_4',
       billingEventId: 'evt_c_4',
       customerContext: null,

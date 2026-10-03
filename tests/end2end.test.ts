@@ -107,7 +107,7 @@ describe('End-to-End LLM Mocked Tests', () => {
     
     expect(json.nextStep).toBe('none');
     expect(json.orderId).toBeUndefined();
-    const offer = getDb().prepare('SELECT * FROM offers WHERE customer_id = ?').get('c_1');
+    const offer = getDb().prepare('SELECT * FROM offers WHERE customer_id = ?').get('c_1') as any;
     expect(offer?.paypal_order_id).toBeFalsy();
   });
 

@@ -68,7 +68,7 @@ async function validate_guardrails(state: typeof GraphState.State) {
   const lastMsg = state.messages[state.messages.length - 1].content as string;
   const escalations = detectEscalation(lastMsg);
   
-  const validated = validateProposal(state.decision as Proposal, state.customerContext!, { escalationKeywords: escalations });
+  const validated = validateProposal(state.decision as any as Proposal, state.customerContext!, { escalationKeywords: escalations });
   
   if (state.intent === 'accept' && state.activeOfferId) {
     db.prepare(`UPDATE offers SET status = 'accepted', accepted_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'`).run(state.activeOfferId);
@@ -91,7 +91,9 @@ async function compose_message(state: typeof GraphState.State, config: any) {
   const llm = getLlm(modelId);
   const sysMsg = `You are a billing retention agent.
 Intent: ${state.intent}. Action: ${state.decision?.action}.
-DO NOT include any links or URLs. 
+DO NOT include any links or URLs.
+You MUST explicitly state the original plan price (${formatDollars(state.customerContext?.plan_price_cents || 0)}) and the new final amount (${state.decision?.final_amount_cents ? formatDollars(state.decision.final_amount_cents) : formatDollars(state.customerContext?.plan_price_cents || 0)}) in your message.
+Mention the customer's usage percentage (${state.customerContext?.usage_percent}%).
 If making an offer, ask "Would you like to proceed?" and DO NOT mention a checkout button.
 If the customer accepted (intent=accept), tell them a checkout button is provided below (except for 'pause').
 Compose a polite response to the customer based on the action. If escalating, tell them exactly: "Your account has been flagged for our billing team, and a specialist will follow up with you by email shortly."`;
@@ -104,10 +106,19 @@ Compose a polite response to the customer based on the action. If escalating, te
 
   const required = state.decision?.final_amount_cents ?? null;
   const allowed = state.customerContext?.plan_price_cents ? [state.customerContext.plan_price_cents] : [];
-  const { ok } = checkMessageAmounts(lastMsg, required, allowed);
-  
+  const { ok, reason } = checkMessageAmounts(lastMsg, required, allowed);
+
+  // LOGGING FOR USER REQUEST
+  const db = getDb();
+  const msgCount = db.prepare('SELECT COUNT(*) as c FROM conversations WHERE customer_id = ?').get(state.customerId) as { c: number };
+  if (msgCount.c === 0) {
+    console.log(`\n--- DEBUG [${state.customerId}] ---`);
+    console.log(`Raw model message: ${lastMsgRaw}`);
+    console.log(`Allowed set (cents): ${JSON.stringify(allowed)}. Required (cents): ${required}`);
+    console.log(`checkMessageAmounts result: ok=${ok}, reason=${reason}`);
+  }
+
   if (state.intent === 'escalate' || state.decision?.action === 'escalate') {
-    const db = getDb();
     db.prepare(`
       INSERT INTO agent_actions (id, customer_id, billing_event_id, action, reasoning, details_json)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -152,6 +163,11 @@ Compose a polite response to the customer based on the action. If escalating, te
         }
       }
     }
+  }
+
+  if (msgCount.c === 0) {
+    console.log(`Stored message: ${lastMsg}`);
+    console.log(`------------------------------\n`);
   }
 
   finalMessages[finalMessages.length - 1].content = lastMsg;

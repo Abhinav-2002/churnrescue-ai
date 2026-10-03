@@ -167,7 +167,7 @@ export function checkMessageAmounts(
   const allowed = new Set([...allowedCents, ...(requiredCents != null ? [requiredCents] : [])]);
   const bad = found.filter((c) => !allowed.has(c));
   if (bad.length) return { ok: false, reason: `unapproved amounts: ${bad.map(formatDollars).join(', ')}` };
-  if (requiredCents != null && requiredCents > 0 && !message.includes(formatDollars(requiredCents))) {
+  if (requiredCents != null && requiredCents > 0 && !found.includes(requiredCents)) {
     return { ok: false, reason: `missing required amount ${formatDollars(requiredCents)}` };
   }
   return { ok: true };
