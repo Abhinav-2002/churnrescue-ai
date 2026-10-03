@@ -79,7 +79,7 @@ function initDb() {
       billing_event_id TEXT NOT NULL,
       original_amount_cents INTEGER NOT NULL CHECK(original_amount_cents >= 0),
       recovered_amount_cents INTEGER NOT NULL CHECK(recovered_amount_cents >= 0),
-      paypal_order_id TEXT NOT NULL,
+      paypal_order_id TEXT NOT NULL UNIQUE,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(customer_id) REFERENCES customers(id),
       FOREIGN KEY(billing_event_id) REFERENCES billing_events(id)

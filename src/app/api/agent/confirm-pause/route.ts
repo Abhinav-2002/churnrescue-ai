@@ -12,8 +12,19 @@ export async function POST(req: Request) {
     
     if (offer.kind !== 'pause') return NextResponse.json({ error: 'Not a pause offer' }, { status: 400 });
 
-    db.prepare(`UPDATE offers SET status = 'accepted', accepted_at = CURRENT_TIMESTAMP WHERE id = ?`).run(offerId);
-    db.prepare(`UPDATE customers SET status = 'paused' WHERE id = ?`).run(customerId);
+    if (offer.status !== 'pending' && offer.status !== 'accepted') {
+      return NextResponse.json({ error: 'Offer is not pending or accepted' }, { status: 400 });
+    }
+
+    if (new Date(offer.expires_at).getTime() < Date.now()) {
+      return NextResponse.json({ error: 'Offer expired' }, { status: 400 });
+    }
+
+    db.transaction(() => {
+      db.prepare(`UPDATE offers SET status = 'accepted', accepted_at = CURRENT_TIMESTAMP WHERE id = ?`).run(offerId);
+      db.prepare(`UPDATE customers SET status = 'paused' WHERE id = ?`).run(customerId);
+      db.prepare(`UPDATE billing_events SET status = 'paused' WHERE id = ?`).run(offer.billing_event_id);
+    })();
 
     return NextResponse.json({ success: true });
   } catch (err: any) {

@@ -23,7 +23,6 @@ function SpikeClient() {
       <div style={{ maxWidth: 400, marginTop: 20 }}>
         <PayPalProvider
           clientId={clientId}
-          intent="capture"
           environment="sandbox"
         >
           <PayPalOneTimePaymentButton

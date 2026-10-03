@@ -13,112 +13,114 @@ export async function POST(req: Request, { params }: { params: Promise<{ offerId
       return NextResponse.json({ error: 'Offer not found' }, { status: 404 });
     }
 
+    if (offer.status === 'captured') {
+      return NextResponse.json({ success: true, status: 'captured' });
+    }
+
     const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(offer.customer_id) as any;
     if (customer.status !== 'at_risk') {
       return NextResponse.json({ error: 'Customer is not at_risk' }, { status: 400 });
     }
 
-    if (new Date(offer.expires_at).getTime() < Date.now() && offer.status !== 'captured') {
-      return NextResponse.json({ error: 'Offer expired' }, { status: 400 });
-    }
-
-    // Handle 'pause' separately
-    if (offer.kind === 'pause') {
-      if (offer.status === 'captured') return NextResponse.json({ success: true, status: 'captured' });
-      db.transaction(() => {
-        db.prepare(`UPDATE offers SET status = 'captured' WHERE id = ?`).run(offer.id);
-        db.prepare(`UPDATE customers SET status = 'paused' WHERE id = ?`).run(customer.id);
-        db.prepare(`UPDATE billing_events SET status = 'paused' WHERE id = ?`).run(offer.billing_event_id);
-      })();
-      return NextResponse.json({ success: true, status: 'captured' });
-    }
-
-    // PayPal payment check
     if (!offer.paypal_order_id) {
       return NextResponse.json({ error: 'No paypal order associated with offer' }, { status: 400 });
     }
-
-    if (offer.status === 'captured') {
-      return NextResponse.json({ success: true, status: 'captured' });
-    }
     
-    // Concurrency & Crash recovery
     if (offer.status === 'capturing') {
       const capturingAt = offer.capturing_at ? new Date(offer.capturing_at).getTime() : 0;
-      if (Date.now() - capturingAt < 120000) { // 2 minutes
-        return NextResponse.json({ error: 'Offer is currently being captured' }, { status: 409 });
+      if (Date.now() - capturingAt < 120000) { 
+        return NextResponse.json({ error: 'in_progress' }, { status: 409 });
       }
-      // If stuck > 2 minutes, proceed with reconciliation
     } else if (offer.status === 'accepted') {
       const updateRes = db.prepare(`UPDATE offers SET status = 'capturing', capturing_at = ? WHERE id = ? AND status = 'accepted'`).run(new Date().toISOString(), offer.id);
       if (updateRes.changes === 0) {
-        // Someone else grabbed it
         offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(offerId) as any;
         if (offer.status === 'captured') {
            return NextResponse.json({ success: true, status: 'captured' });
         }
-        return NextResponse.json({ error: 'Offer is currently being captured' }, { status: 409 });
+        return NextResponse.json({ error: 'in_progress' }, { status: 409 });
       }
       offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(offerId) as any;
     } else {
        return NextResponse.json({ error: 'Offer is not accepted' }, { status: 400 });
     }
 
-    // Order status from PayPal
-    const paypalOrder = await getOrder(offer.paypal_order_id);
+    let paypalOrder: any;
+    try {
+      paypalOrder = await getOrder(offer.paypal_order_id);
+    } catch (err: any) {
+      console.error('get-order failure:', err);
+      db.prepare(`UPDATE offers SET status = 'accepted', capturing_at = NULL WHERE id = ?`).run(offer.id);
+      return NextResponse.json({ error: 'get_order_failed' }, { status: 500 });
+    }
+
     let capturedAmountStr = '';
 
     if (paypalOrder.status === 'COMPLETED') {
-      // Reconcile already completed order (crash recovery)
       capturedAmountStr = paypalOrder.purchase_units[0].payments.captures[0].amount.value;
     } else if (paypalOrder.status === 'APPROVED') {
+      if (new Date(offer.expires_at).getTime() < Date.now()) {
+        db.prepare(`UPDATE offers SET status = 'accepted', capturing_at = NULL WHERE id = ?`).run(offer.id);
+        return NextResponse.json({ error: 'expired' }, { status: 400 });
+      }
+
       const orderAmountStr = paypalOrder.purchase_units[0].amount.value;
       const orderAmountCents = Math.round(parseFloat(orderAmountStr) * 100);
       
       if (orderAmountCents !== offer.amount_cents) {
-        db.prepare(`UPDATE offers SET status = 'failed' WHERE id = ?`).run(offer.id);
-        return NextResponse.json({ error: `Amount mismatch. Offer is ${offer.amount_cents} cents but PayPal order is ${orderAmountCents} cents` }, { status: 400 });
+        db.prepare(`UPDATE offers SET status = 'needs_review' WHERE id = ?`).run(offer.id);
+        console.error(`SEVERE: Amount mismatch pre-capture for offer ${offer.id}. Expected ${offer.amount_cents} cents but PayPal order is ${orderAmountCents} cents.`);
+        return NextResponse.json({ error: 'amount_mismatch' }, { status: 400 });
       }
 
-      const captureResult = await captureOrder(offer.paypal_order_id);
+      let captureResult: any;
+      try {
+        captureResult = await captureOrder(offer.paypal_order_id);
+      } catch (err: any) {
+        console.error('captureOrder network/fatal error:', err);
+        return NextResponse.json({ error: 'capture_unknown' }, { status: 500 });
+      }
       
       if (captureResult.status !== 201 && captureResult.status !== 200) {
-        // If ALREADY_CAPTURED error returned, reconcile instead of failing
         const isAlreadyCaptured = captureResult.body?.name === 'ORDER_ALREADY_CAPTURED' || 
                                   captureResult.body?.details?.[0]?.issue === 'ORDER_ALREADY_CAPTURED';
         
         if (isAlreadyCaptured) {
-           const recheckOrder = await getOrder(offer.paypal_order_id);
-           if (recheckOrder.status === 'COMPLETED') {
-             capturedAmountStr = recheckOrder.purchase_units[0].payments.captures[0].amount.value;
-           } else {
-             db.prepare(`UPDATE offers SET status = 'failed' WHERE id = ?`).run(offer.id);
-             return NextResponse.json({ error: 'Capture failed and order is not COMPLETED', details: captureResult.body }, { status: 400 });
+           try {
+             const recheckOrder = await getOrder(offer.paypal_order_id);
+             if (recheckOrder.status === 'COMPLETED') {
+               capturedAmountStr = recheckOrder.purchase_units[0].payments.captures[0].amount.value;
+             } else {
+               db.prepare(`UPDATE offers SET status = 'failed' WHERE id = ?`).run(offer.id);
+               return NextResponse.json({ error: 'declined' }, { status: 400 });
+             }
+           } catch(e) {
+             console.error('Recheck order failed', e);
+             return NextResponse.json({ error: 'capture_unknown' }, { status: 500 });
            }
         } else {
-          // Decline (INSTRUMENT_DECLINED)
+          console.error('PayPal Capture Declined:', captureResult.body);
           db.prepare(`UPDATE offers SET status = 'failed' WHERE id = ?`).run(offer.id);
-          return NextResponse.json({ error: 'Capture declined by PayPal', details: captureResult.body }, { status: 400 });
+          return NextResponse.json({ error: 'declined' }, { status: 400 }); 
         }
       } else {
         capturedAmountStr = captureResult.body.purchase_units[0].payments.captures[0].amount.value;
       }
     } else {
-      db.prepare(`UPDATE offers SET status = 'failed' WHERE id = ?`).run(offer.id);
-      return NextResponse.json({ error: `PayPal order is in status: ${paypalOrder.status}, expected APPROVED` }, { status: 400 });
+      db.prepare(`UPDATE offers SET status = 'accepted', capturing_at = NULL WHERE id = ?`).run(offer.id);
+      return NextResponse.json({ error: 'not_approved' }, { status: 400 });
     }
 
     const capturedAmountCents = Math.round(parseFloat(capturedAmountStr) * 100);
 
     if (capturedAmountCents !== offer.amount_cents) {
-       db.prepare(`UPDATE offers SET status = 'failed' WHERE id = ?`).run(offer.id);
-       return NextResponse.json({ error: `Amount mismatch after capture. Expected ${offer.amount_cents} cents but captured ${capturedAmountCents} cents` }, { status: 400 });
+       console.error(`SEVERE: Amount mismatch after capture for offer ${offer.id}. Expected ${offer.amount_cents} cents but captured ${capturedAmountCents} cents.`);
+       db.prepare(`UPDATE offers SET status = 'needs_review' WHERE id = ?`).run(offer.id);
+       return NextResponse.json({ error: 'amount_mismatch_after_capture' }, { status: 400 });
     }
 
-    // One DB transaction for recovery
     db.transaction(() => {
       const recoveryId = `rec_${Date.now()}_${Math.random().toString(36).substring(2,7)}`;
-      // INSERT OR IGNORE just in case of weird idempotency repeats where row exists but offer status wasn't updated
       db.prepare(`
         INSERT OR IGNORE INTO recoveries (id, customer_id, billing_event_id, original_amount_cents, recovered_amount_cents, paypal_order_id)
         VALUES (?, ?, ?, ?, ?, ?)

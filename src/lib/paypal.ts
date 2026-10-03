@@ -166,3 +166,7 @@ export async function getOrder(orderId: string) {
   if (!response.ok) throw new Error(`Failed to get order: ${await response.text()}`);
   return response.json();
 }
+
+if (process.env.NODE_ENV !== 'test' && process.env.PAYPAL_BASE_URL !== 'https://api-m.sandbox.paypal.com') {
+  throw new Error('PAYPAL_BASE_URL must be set to https://api-m.sandbox.paypal.com for Phase 1');
+}
