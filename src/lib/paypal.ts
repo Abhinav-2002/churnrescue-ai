@@ -118,3 +118,40 @@ export async function captureOrder(orderId: string, options?: { forceDecline?: b
     body: responseBody
   };
 }
+
+export async function verifyWebhookSignature(headers: Record<string, string>, rawBody: string) {
+  const baseURL = process.env.PAYPAL_BASE_URL;
+  const webhookId = process.env.PAYPAL_WEBHOOK_ID;
+  const accessToken = await getAccessToken();
+
+  if (!webhookId) {
+    throw new Error('PAYPAL_WEBHOOK_ID is not configured');
+  }
+
+  const payload = {
+    auth_algo: headers['paypal-auth-algo'],
+    cert_url: headers['paypal-cert-url'],
+    transmission_id: headers['paypal-transmission-id'],
+    transmission_sig: headers['paypal-transmission-sig'],
+    transmission_time: headers['paypal-transmission-time'],
+    webhook_id: webhookId,
+    webhook_event: JSON.parse(rawBody)
+  };
+
+  const response = await fetch(`${baseURL}/v1/notifications/verify-webhook-signature`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const body = await response.json().catch(() => null);
+  
+  if (!response.ok || body?.verification_status !== 'SUCCESS') {
+    return false;
+  }
+  
+  return true;
+}

@@ -1,25 +1,28 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 
-let db: Database.Database;
+declare global {
+  var _sqliteDb: Database.Database | undefined;
+}
 
 export function getDb() {
-  if (!db) {
+  if (!globalThis._sqliteDb) {
     // Determine path based on environment
     const dbPath = process.env.NODE_ENV === 'test' 
       ? ':memory:' 
       : path.join(process.cwd(), 'data.db');
       
-    db = new Database(dbPath);
+    globalThis._sqliteDb = new Database(dbPath);
     // Enforce foreign keys
-    db.pragma('foreign_keys = ON');
+    globalThis._sqliteDb.pragma('foreign_keys = ON');
     
     initDb();
   }
-  return db;
+  return globalThis._sqliteDb;
 }
 
 function initDb() {
+  const db = globalThis._sqliteDb!;
   db.exec(`
     CREATE TABLE IF NOT EXISTS customers (
       id TEXT PRIMARY KEY,
@@ -90,6 +93,7 @@ function initDb() {
 }
 
 export function seedDb() {
+  const db = globalThis._sqliteDb!;
   const insertCustomer = db.prepare(`
     INSERT INTO customers (id, name, email, plan_name, plan_price_cents, usage_percent, status)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -121,7 +125,7 @@ export function seedDb() {
 }
 
 export function resetDb() {
-  if (db) {
+  if (globalThis._sqliteDb) {
     seedDb();
   } else {
     getDb();
