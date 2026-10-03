@@ -118,7 +118,7 @@ function migrateOffers(db: Database.Database) {
   add('paypal_order_id', 'paypal_order_id TEXT NULL');
   add(
     'paypal_order_status',
-    "paypal_order_status TEXT NULL CHECK(paypal_order_status IS NULL OR paypal_order_status IN ('created', 'declined', 'completed'))",
+    "paypal_order_status TEXT NULL CHECK(paypal_order_status IS NULL OR paypal_order_status IN ('created', 'payer_action_required', 'approved', 'captured', 'declined', 'completed', 'failed'))",
   );
   add('paypal_approve_url', 'paypal_approve_url TEXT NULL');
   add('discount_percent', 'discount_percent INTEGER NULL CHECK(discount_percent IS NULL OR (discount_percent >= 0 AND discount_percent <= 50))');

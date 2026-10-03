@@ -47,8 +47,9 @@ describe('API Routes', () => {
     let req = mockRequest({ customerId: 'c_1', text: 'a'.repeat(501) });
     let res = await messagePOST(req);
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toContain('too long');
+    expect((await res.json()).error).toContain('Too big');
 
+    getDb().prepare('UPDATE customers SET status = ?').run('at_risk');
     for (let i = 0; i < 12; i++) {
       db.prepare(`INSERT INTO conversations (id, customer_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)`).run(
         `msg_${i}`, 'c_1', 'customer', 'test', new Date().toISOString()

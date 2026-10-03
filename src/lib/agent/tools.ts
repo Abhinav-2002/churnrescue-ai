@@ -56,7 +56,7 @@ export const create_recovery_order = tool(
       
       const orderId = res.id;
       db.prepare('UPDATE offers SET paypal_order_id = ?, paypal_order_status = ? WHERE id = ?').run(
-        orderId, res.status.toLowerCase(), offerId
+        orderId, res.status ? res.status.toLowerCase() : 'created', offerId
       );
       
       return JSON.stringify({ orderId, status: res.status });
@@ -95,7 +95,8 @@ export async function createOrderInternal(offerId: string) {
     const resRaw = await toolkitCreateOrder.invoke(toolkitInput);
     const resString = typeof resRaw === 'string' ? resRaw : JSON.stringify(resRaw);
     const res = JSON.parse(resString);
-    const status = 'created';
+    const status = res.status ? res.status.toLowerCase() : 'created';
+    console.log("DEBUG res.status:", res.status, "status to insert:", status);
     db.prepare('UPDATE offers SET paypal_order_id = ?, paypal_order_status = ? WHERE id = ?').run(
       res.id, status, offerId
     );

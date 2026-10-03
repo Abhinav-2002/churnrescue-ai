@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateProposal, checkMessageAmounts, detectEscalation, CustomerContext } from '../src/lib/agent/guardrails';
+import { validateProposal, checkMessageAmounts, detectEscalation, CustomerContext, sanitizeReply } from '../src/lib/agent/guardrails';
 
 describe('guardrails', () => {
   it('usage 59 allows partial_credit; 60 and 61 do not', () => {
@@ -17,6 +17,11 @@ describe('guardrails', () => {
 
     const res61 = validateProposal(proposal, ctx61);
     expect(res61.action).toBe('retry'); // clamped
+  });
+
+  it('sanitizeReply strips ALL URLs from the reply', () => {
+    const text = 'Here is your link https://paypal.com/xyz and http://example.com please click.';
+    expect(sanitizeReply(text)).toBe('Here is your link  and  please click.');
   });
 
   it('80% discount clamps to 50%', () => {

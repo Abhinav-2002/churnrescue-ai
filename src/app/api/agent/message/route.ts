@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { graph } from '@/lib/agent/graph';
 import { HumanMessage, AIMessage } from '@langchain/core/messages';
+import { z } from 'zod';
+import { formatDollars } from '@/lib/money';
 
 const ipCounts = new Map<string, { count: number, resetAt: number }>();
 
@@ -18,23 +20,36 @@ function rateLimit(req: Request): boolean {
   return true;
 }
 
+const reqSchema = z.object({
+  customerId: z.string(),
+  text: z.string().max(500).optional(),
+});
+
 export async function POST(req: Request) {
   if (!rateLimit(req)) {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
   }
 
   try {
-    const { customerId, text } = await req.json();
-    if (!customerId) return NextResponse.json({ error: 'Missing customerId' }, { status: 400 });
-    
-    if (text && text.length > 500) {
-      return NextResponse.json({ error: 'Message too long' }, { status: 400 });
+    const rawBody = await req.json();
+    const parsed = reqSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.message }, { status: 400 });
     }
+    const { customerId, text } = parsed.data;
 
     const db = getDb();
-    const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
+    const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId) as any;
     if (!customer) {
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
+    }
+    if (customer.status !== 'at_risk') {
+      return NextResponse.json({ error: 'Customer is not at_risk' }, { status: 400 });
+    }
+
+    const msgCount = db.prepare(`SELECT COUNT(*) as c FROM conversations WHERE customer_id = ? AND role = 'customer'`).get(customerId) as { c: number };
+    if (msgCount.c >= 12 && text) {
+      return NextResponse.json({ error: 'Conversation limit reached.' }, { status: 400 });
     }
 
     if (text) {
@@ -45,11 +60,6 @@ export async function POST(req: Request) {
         text,
         new Date().toISOString()
       );
-    }
-    
-    const msgCount = db.prepare('SELECT COUNT(*) as c FROM conversations WHERE customer_id = ?').get(customerId) as { c: number };
-    if (msgCount.c >= 12) {
-      return NextResponse.json({ error: 'Conversation limit reached.' }, { status: 400 });
     }
 
     const billingEvent = db.prepare(`SELECT id FROM billing_events WHERE customer_id = ? AND status = 'failed' ORDER BY created_at DESC LIMIT 1`).get(customerId) as any;
@@ -68,17 +78,41 @@ export async function POST(req: Request) {
 
     const state = { customerId, billingEventId: billingEvent.id, messages };
     
-    const out = await Promise.race([
-      graph.invoke(state, { configurable: { modelId: process.env.LLM_MODEL } }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Agent timeout')), 30000))
-    ]) as any;
+    let out;
+    try {
+      out = await Promise.race([
+        graph.invoke(state, { configurable: { modelId: process.env.LLM_MODEL } }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Agent timeout')), 30000))
+      ]) as any;
+    } catch (e: any) {
+      console.error('LLM Failure:', e);
+      // fallback
+      const latestOffer = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customerId) as any;
+      let reply = 'I apologize, but I am experiencing technical difficulties. ';
+      if (latestOffer && latestOffer.status === 'pending') {
+        if (latestOffer.kind === 'pause') {
+          reply += 'Your subscription will be paused with no charge. Please confirm if you want to proceed.';
+        } else {
+          reply += `We can offer a new amount of ${formatDollars(latestOffer.amount_cents)}. Would you like to proceed?`;
+        }
+      } else {
+        reply += `Your payment failed. Your plan stays at ${formatDollars(customer.plan_price_cents)}. No discount available. Would you like to proceed?`;
+      }
+      return NextResponse.json({ reply, nextStep: 'none' });
+    }
 
     const lastMsg = out.messages[out.messages.length - 1].content;
-    const dbOut = getDb();
-    const latestOffer = dbOut.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customerId) as any;
+    const latestOffer = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customerId) as any;
     
     let nextStep = 'none';
     let responseObj: any = { reply: lastMsg, nextStep };
+    db.prepare(`INSERT INTO conversations (id, customer_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)`).run(
+      `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      customerId,
+      'agent',
+      lastMsg,
+      new Date().toISOString()
+    );
 
     if (out.intent === 'escalate' || out.decision?.action === 'escalate') {
       responseObj.nextStep = 'escalated';
@@ -91,18 +125,12 @@ export async function POST(req: Request) {
         responseObj.offerId = latestOffer.id;
         responseObj.orderId = latestOffer.paypal_order_id;
         responseObj.amountCents = latestOffer.amount_cents;
-      } else if (latestOffer.status === 'pending' && latestOffer.kind !== 'pause') {
-        // Offer is made but not accepted yet, waiting for user to say yes.
-        // Wait, the instructions say:
-        // "offerId and orderId only when the offer is accepted AND (for pay) an order exists."
-        // So we don't return them if pending (except for pause which uses confirm_pause without an order).
-        // Wait! How does the frontend know there is an offer to accept? The LLM asked them.
-        // Or if the LLM says "we can offer $20, say yes", the nextStep is just 'none'.
       }
     }
     
     return NextResponse.json(responseObj);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error('Route error:', err);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

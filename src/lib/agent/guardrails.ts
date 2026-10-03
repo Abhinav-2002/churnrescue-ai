@@ -172,3 +172,7 @@ export function checkMessageAmounts(
   }
   return { ok: true };
 }
+
+export function sanitizeReply(text: string): string {
+  return text.replace(/https?:\/\/[^\s]+/g, '').trim();
+}
