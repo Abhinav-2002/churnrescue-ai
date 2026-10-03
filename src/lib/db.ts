@@ -7,11 +7,11 @@ declare global {
 
 export function getDb() {
   if (!globalThis._sqliteDb) {
-    // Determine path based on environment
-    const dbPath = process.env.NODE_ENV === 'test' 
-      ? ':memory:' 
-      : path.join(process.cwd(), 'data.db');
-      
+    // SQLITE_PATH lets scripts (try-agent, proof scripts) use an isolated DB.
+    const dbPath =
+      process.env.SQLITE_PATH ??
+      (process.env.NODE_ENV === 'test' ? ':memory:' : path.join(process.cwd(), 'data.db'));
+
     globalThis._sqliteDb = new Database(dbPath);
     // Enforce foreign keys
     globalThis._sqliteDb.pragma('foreign_keys = ON');
@@ -84,12 +84,46 @@ function initDb() {
       FOREIGN KEY(customer_id) REFERENCES customers(id),
       FOREIGN KEY(billing_event_id) REFERENCES billing_events(id)
     );
+
+    CREATE TABLE IF NOT EXISTS conversations (
+      id TEXT PRIMARY KEY,
+      customer_id TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('agent', 'customer')),
+      text TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(customer_id) REFERENCES customers(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_conversations_customer ON conversations(customer_id, created_at);
   `);
+
+  migrateOffers(db);
 
   const customerCount = db.prepare('SELECT COUNT(*) as c FROM customers').get() as { c: number };
   if (customerCount.c === 0) {
     seedDb();
   }
+}
+
+/**
+ * Phase 4 offer columns. ALTER TABLE ... ADD COLUMN is idempotent here (only added when missing),
+ * so an existing data.db from Phase 2/3 is upgraded in place.
+ * Offer status values: pending | accepted | declined | superseded | paid | completed.
+ * paypal_order_status values: created | declined | completed.
+ */
+function migrateOffers(db: Database.Database) {
+  const cols = new Set((db.prepare('PRAGMA table_info(offers)').all() as { name: string }[]).map((c) => c.name));
+  const add = (name: string, ddl: string) => {
+    if (!cols.has(name)) db.exec(`ALTER TABLE offers ADD COLUMN ${ddl}`);
+  };
+  add('paypal_order_id', 'paypal_order_id TEXT NULL');
+  add(
+    'paypal_order_status',
+    "paypal_order_status TEXT NULL CHECK(paypal_order_status IS NULL OR paypal_order_status IN ('created', 'declined', 'completed'))",
+  );
+  add('paypal_approve_url', 'paypal_approve_url TEXT NULL');
+  add('discount_percent', 'discount_percent INTEGER NULL CHECK(discount_percent IS NULL OR (discount_percent >= 0 AND discount_percent <= 50))');
+  add('target_plan', 'target_plan TEXT NULL');
+  add('accepted_at', 'accepted_at TEXT NULL');
 }
 
 export function seedDb() {
@@ -112,6 +146,7 @@ export function seedDb() {
 
   db.transaction(() => {
     // Clear all tables first to ensure a clean seed
+    db.exec('DELETE FROM conversations');
     db.exec('DELETE FROM recoveries');
     db.exec('DELETE FROM agent_actions');
     db.exec('DELETE FROM offers');
