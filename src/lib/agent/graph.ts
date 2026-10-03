@@ -5,7 +5,6 @@ import { getDb } from '../db';
 import { create_recovery_order, createOrderInternal } from './tools';
 import { Proposal, proposalSchema, validateProposal, ValidatedDecision, detectEscalation, checkMessageAmounts, CustomerContext, sanitizeReply } from './guardrails';
 import { formatDollars } from '../money';
-import { checkLlmBudget } from '../rate-limit';
 
 const GraphState = Annotation.Root({
   ...MessagesAnnotation.spec,
@@ -42,7 +41,7 @@ async function load_context(state: typeof GraphState.State) {
 }
 
 async function decide(state: typeof GraphState.State, config: any) {
-  if (!checkLlmBudget()) return { intent: 'escalate', rawProposal: { action: 'escalate', reasoning: 'budget exceeded', discount_percent: null, target_plan: null, message_tone_notes: '' } };
+  // LLM budget is checked once per graph run by the calling route (see src/lib/rate-limit.ts).
 
   const modelId = config?.configurable?.modelId || process.env.LLM_MODEL;
   

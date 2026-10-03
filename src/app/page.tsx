@@ -113,14 +113,21 @@ export default function Home() {
         });
         const startData = await startRes.json();
         
-        // Re-fetch state to get full messages list
-        const sRes = await fetch(`/api/agent/state?customerId=${cId}`);
-        const sData = await sRes.json();
-        
-        setMessages(sData.messages || []);
-        setNextStep(sData.nextStep || 'none');
-        setOfferInfo({ offerId: sData.offerId, orderId: sData.orderId });
-        setTyping(false);
+        if (startData.busy) {
+          // Budget exhausted on first message
+          setMessages([{ role: 'agent', text: startData.reply }]);
+          setNextStep(startData.nextStep || 'none');
+          setTyping(false);
+        } else {
+          // Re-fetch state to get full messages list
+          const sRes = await fetch(`/api/agent/state?customerId=${cId}`);
+          const sData = await sRes.json();
+          
+          setMessages(sData.messages || []);
+          setNextStep(sData.nextStep || 'none');
+          setOfferInfo({ offerId: sData.offerId, orderId: sData.orderId });
+          setTyping(false);
+        }
       }
     } catch (e) {
       console.error(e);
@@ -146,8 +153,12 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) {
         setSystemMsg({ kind: 'error', text: data.error || 'Failed to send' });
+      } else if (data.busy) {
+        // Budget exhausted: no DB writes occurred. Append the busy reply locally.
+        setMessages(prev => [...prev, { role: 'agent', text: data.reply }]);
+        setNextStep(data.nextStep || 'none');
       } else {
-        // Re-fetch state to get full messages list
+        // Normal success: re-fetch state to get full synced messages list
         const sRes = await fetch(`/api/agent/state?customerId=${selectedCustomer.id}`);
         const sData = await sRes.json();
         

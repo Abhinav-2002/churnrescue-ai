@@ -2,19 +2,29 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { graph } from '@/lib/agent/graph';
 import { HumanMessage } from '@langchain/core/messages';
+import { rateLimit, LIMITS, tryConsumeLlmRun, BUSY_REPLY } from '@/lib/rate-limit';
 
 export async function POST(req: Request) {
+  const limited = rateLimit(req, LIMITS.agentStart);
+  if (limited) return limited;
+
   try {
     const { customerId } = await req.json();
-    if (!customerId) return NextResponse.json({ error: 'Missing customerId' }, { status: 400 });
+    if (!customerId) return NextResponse.json({ error: 'missing_customer_id' }, { status: 400 });
 
     const db = getDb();
     const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId) as any;
-    if (!customer) return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
-    if (customer.status === 'healthy') return NextResponse.json({ error: 'Customer is healthy' }, { status: 400 });
+    if (!customer) return NextResponse.json({ error: 'customer_not_found' }, { status: 404 });
+    if (customer.status === 'healthy') return NextResponse.json({ error: 'customer_healthy' }, { status: 400 });
 
     const billingEvent = db.prepare(`SELECT id FROM billing_events WHERE customer_id = ? AND status = 'failed' ORDER BY created_at DESC LIMIT 1`).get(customerId) as any;
-    if (!billingEvent) return NextResponse.json({ error: 'No failed billing event found' }, { status: 400 });
+    if (!billingEvent) return NextResponse.json({ error: 'no_failed_billing_event' }, { status: 400 });
+
+    // One budget unit per graph run. When exhausted: no model call, nothing persisted,
+    // no escalation recorded, customer state untouched.
+    if (!tryConsumeLlmRun()) {
+      return NextResponse.json({ reply: BUSY_REPLY, nextStep: 'none', busy: true });
+    }
 
     const instruction = "Start the conversation proactively. The customer's payment failed. Propose an appropriate retention offer based on their usage.";
     
@@ -52,6 +62,7 @@ export async function POST(req: Request) {
     
     return NextResponse.json(responseObj);
   } catch (err: any) {
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    console.error('agent/start error:', err);
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }

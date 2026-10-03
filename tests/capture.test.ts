@@ -35,7 +35,7 @@ describe('Capture Endpoint', () => {
       status: 'PAYER_ACTION_REQUIRED'
     } as any);
 
-    const req = { json: async () => ({}) } as any;
+    const req = { headers: new Headers({"x-forwarded-for": "127.0.0.1"}), json: async () => ({}) } as any;
     const res = await POST(req, { params: { offerId: 'off_1' } });
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'not_approved' });
@@ -57,7 +57,7 @@ describe('Capture Endpoint', () => {
       }
     } as any);
 
-    const req = { json: async () => ({}) } as any;
+    const req = { headers: new Headers({"x-forwarded-for": "127.0.0.1"}), json: async () => ({}) } as any;
     const res = await POST(req, { params: { offerId: 'off_1' } });
     expect(res.status).toBe(200);
 
@@ -79,7 +79,7 @@ describe('Capture Endpoint', () => {
   it('repeat call after success returns success', async () => {
     db.prepare(`UPDATE offers SET status = 'captured' WHERE id = 'off_1'`).run();
     
-    const req = { json: async () => ({}) } as any;
+    const req = { headers: new Headers({"x-forwarded-for": "127.0.0.1"}), json: async () => ({}) } as any;
     const res = await POST(req, { params: { offerId: 'off_1' } });
     
     expect(res.status).toBe(200);
@@ -96,7 +96,7 @@ describe('Capture Endpoint', () => {
       purchase_units: [{ payments: { captures: [{ amount: { value: '20.00' } }] } }]
     } as any);
 
-    const req = { json: async () => ({}) } as any;
+    const req = { headers: new Headers({"x-forwarded-for": "127.0.0.1"}), json: async () => ({}) } as any;
     const res = await POST(req, { params: { offerId: 'off_1' } });
     expect(res.status).toBe(200);
     
@@ -108,7 +108,7 @@ describe('Capture Endpoint', () => {
   it('get-order throws: offer reverted to accepted, not stuck in capturing', async () => {
     vi.mocked(paypal.getOrder).mockRejectedValue(new Error('Network error'));
     
-    const req = { json: async () => ({}) } as any;
+    const req = { headers: new Headers({"x-forwarded-for": "127.0.0.1"}), json: async () => ({}) } as any;
     const res = await POST(req, { params: { offerId: 'off_1' } });
     
     expect(res.status).toBe(500);
@@ -136,8 +136,8 @@ describe('Capture Endpoint', () => {
       } as any;
     });
 
-    const req1 = { json: async () => ({}) } as any;
-    const req2 = { json: async () => ({}) } as any;
+    const req1 = { headers: new Headers({"x-forwarded-for": "127.0.0.1"}), json: async () => ({}) } as any;
+    const req2 = { headers: new Headers({"x-forwarded-for": "127.0.0.1"}), json: async () => ({}) } as any;
     
     const [res1, res2] = await Promise.all([
       POST(req1, { params: { offerId: 'off_1' } }),
@@ -163,7 +163,7 @@ describe('Capture Endpoint', () => {
       purchase_units: [{ amount: { value: '25.00' } }] // 25.00 mismatch with 20.00 offer
     } as any);
 
-    const req = { json: async () => ({ amount: 2500 }), url: 'http://localhost/capture?amount=2500' } as any; 
+    const req = { headers: new Headers({"x-forwarded-for": "127.0.0.1"}), json: async () => ({ amount: 2500 }), url: 'http://localhost/capture?amount=2500' } as any; 
     const res = await POST(req, { params: { offerId: 'off_1' } });
     
     expect(res.status).toBe(400);
@@ -182,7 +182,7 @@ describe('Capture Endpoint', () => {
       body: { name: 'INSTRUMENT_DECLINED', sensitive_info: 'secret' }
     } as any);
 
-    const req = { json: async () => ({}) } as any;
+    const req = { headers: new Headers({"x-forwarded-for": "127.0.0.1"}), json: async () => ({}) } as any;
     const res = await POST(req, { params: { offerId: 'off_1' } });
     
     expect(res.status).toBe(400);
@@ -204,7 +204,7 @@ describe('Capture Endpoint', () => {
       purchase_units: [{ payments: { captures: [{ amount: { value: '20.00' } }] } }]
     } as any);
 
-    const req = { json: async () => ({}) } as any;
+    const req = { headers: new Headers({"x-forwarded-for": "127.0.0.1"}), json: async () => ({}) } as any;
     const res = await POST(req, { params: { offerId: 'off_1' } });
     expect(res.status).toBe(200);
 
@@ -220,7 +220,7 @@ describe('Capture Endpoint', () => {
 
     vi.mocked(paypal.captureOrder).mockRejectedValueOnce(new Error('Network drop after capture'));
 
-    const req1 = { json: async () => ({}) } as any;
+    const req1 = { headers: new Headers({"x-forwarded-for": "127.0.0.1"}), json: async () => ({}) } as any;
     const res1 = await POST(req1, { params: { offerId: 'off_1' } });
     expect(res1.status).toBe(500);
 
@@ -236,7 +236,7 @@ describe('Capture Endpoint', () => {
       purchase_units: [{ payments: { captures: [{ amount: { value: '20.00' } }] } }]
     } as any);
 
-    const req2 = { json: async () => ({}) } as any;
+    const req2 = { headers: new Headers({"x-forwarded-for": "127.0.0.1"}), json: async () => ({}) } as any;
     const res2 = await POST(req2, { params: { offerId: 'off_1' } });
     expect(res2.status).toBe(200);
 

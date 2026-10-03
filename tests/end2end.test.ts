@@ -169,7 +169,9 @@ describe('End-to-End LLM Mocked Tests', () => {
     let req = mockRequest({ customerId: 'c_1', text: 'a'.repeat(501) });
     let res = await messagePOST(req);
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toContain('Too big');
+    const tooLong = await res.json();
+    expect(tooLong.error).toBe('invalid_request');
+    expect(tooLong.issue).toBe('too_big');
 
     for (let i = 0; i < 12; i++) {
       getDb().prepare(`INSERT INTO conversations (id, customer_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)`).run(

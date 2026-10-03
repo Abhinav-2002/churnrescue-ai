@@ -3,14 +3,15 @@ import { getDb } from '@/lib/db';
 import { createOrder, captureOrder } from '@/lib/paypal';
 import { handlePaymentFailed } from '@/lib/failures';
 import crypto from 'crypto';
-import { rateLimit } from '@/lib/rate-limit';
+import { rateLimit, LIMITS } from '@/lib/rate-limit';
+import { isDemoMode } from '@/lib/demo';
 
 export async function POST(request: Request) {
-  if (process.env.DEMO_MODE !== '1') {
-    return NextResponse.json({ error: 'Not Found' }, { status: 404 });
+  if (!isDemoMode()) {
+    return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
 
-  const limited = rateLimit(request, 10, 60 * 1000);
+  const limited = rateLimit(request, LIMITS.simulateFailure);
   if (limited) return limited;
 
   try {
@@ -64,6 +65,6 @@ export async function POST(request: Request) {
     }
   } catch (error: any) {
     console.error('Simulate failure error:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }

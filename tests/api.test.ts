@@ -35,7 +35,7 @@ describe('API Routes', () => {
     const res = await startPOST(req);
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toBe('Customer is healthy');
+    expect(json.error).toBe('customer_healthy');
   });
 
   it('a message over 500 chars is rejected; the 13th message is rejected', async () => {
@@ -47,7 +47,9 @@ describe('API Routes', () => {
     let req = mockRequest({ customerId: 'c_1', text: 'a'.repeat(501) });
     let res = await messagePOST(req);
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toContain('Too big');
+    const tooLong = await res.json();
+    expect(tooLong.error).toBe('invalid_request');
+    expect(tooLong.issue).toBe('too_big');
 
     getDb().prepare('UPDATE customers SET status = ?').run('at_risk');
     for (let i = 0; i < 12; i++) {

@@ -1,11 +1,13 @@
 import { getDb } from '@/lib/db';
+import { isDemoMode } from '@/lib/demo';
+import { notFound } from 'next/navigation';
 import AdminClientPage from './AdminClientPage';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AdminPage() {
-  if (process.env.DEMO_MODE !== '1') {
-    return <div className="p-10 text-center font-bold text-red-600">Admin panel disabled (DEMO_MODE is not 1).</div>;
+  if (!isDemoMode()) {
+    notFound();
   }
   const db = getDb();
   

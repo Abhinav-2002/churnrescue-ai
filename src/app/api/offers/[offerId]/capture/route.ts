@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { getOrder, captureOrder } from '@/lib/paypal';
+import { rateLimit, LIMITS } from '@/lib/rate-limit';
 
 export async function POST(req: Request, { params }: { params: Promise<{ offerId: string }> | { offerId: string } }) {
+  const limited = rateLimit(req, LIMITS.capture);
+  if (limited) return limited;
+
   try {
     const offerId = 'offerId' in params ? params.offerId : (await params).offerId;
 
@@ -135,6 +139,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ offerId
 
   } catch (err: any) {
     console.error('Capture endpoint error:', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }

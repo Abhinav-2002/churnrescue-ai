@@ -4,21 +4,7 @@ import { graph } from '@/lib/agent/graph';
 import { HumanMessage, AIMessage } from '@langchain/core/messages';
 import { z } from 'zod';
 import { formatDollars } from '@/lib/money';
-
-const ipCounts = new Map<string, { count: number, resetAt: number }>();
-
-function rateLimit(req: Request): boolean {
-  const ip = req.headers.get('x-forwarded-for') || '127.0.0.1';
-  const now = Date.now();
-  const entry = ipCounts.get(ip);
-  if (!entry || now > entry.resetAt) {
-    ipCounts.set(ip, { count: 1, resetAt: now + 60000 });
-    return true;
-  }
-  if (entry.count >= 20) return false;
-  entry.count++;
-  return true;
-}
+import { rateLimit, LIMITS, tryConsumeLlmRun, BUSY_REPLY } from '@/lib/rate-limit';
 
 const reqSchema = z.object({
   customerId: z.string(),
@@ -26,15 +12,15 @@ const reqSchema = z.object({
 });
 
 export async function POST(req: Request) {
-  if (!rateLimit(req)) {
-    return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
-  }
+  const limited = rateLimit(req, LIMITS.agentMessage);
+  if (limited) return limited;
 
   try {
     const rawBody = await req.json();
     const parsed = reqSchema.safeParse(rawBody);
     if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.message }, { status: 400 });
+      // Short code plus the Zod issue code (e.g. 'too_big'); no free-text message.
+      return NextResponse.json({ error: 'invalid_request', issue: parsed.error.issues[0]?.code ?? 'invalid' }, { status: 400 });
     }
     const { customerId, text } = parsed.data;
 
@@ -52,6 +38,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Conversation limit reached.' }, { status: 400 });
     }
 
+    const billingEvent = db.prepare(`SELECT id FROM billing_events WHERE customer_id = ? AND status = 'failed' ORDER BY created_at DESC LIMIT 1`).get(customerId) as any;
+    if (!billingEvent) {
+      return NextResponse.json({ error: 'no_failed_billing_event' }, { status: 400 });
+    }
+
+    // One budget unit per graph run. When exhausted: no model call, the customer's text
+    // is not stored, no escalation is recorded and customer state is untouched.
+    if (!tryConsumeLlmRun()) {
+      return NextResponse.json({ reply: BUSY_REPLY, nextStep: 'none', busy: true });
+    }
+
     if (text) {
       db.prepare(`INSERT INTO conversations (id, customer_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)`).run(
         `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -60,11 +57,6 @@ export async function POST(req: Request) {
         text,
         new Date().toISOString()
       );
-    }
-
-    const billingEvent = db.prepare(`SELECT id FROM billing_events WHERE customer_id = ? AND status = 'failed' ORDER BY created_at DESC LIMIT 1`).get(customerId) as any;
-    if (!billingEvent) {
-      return NextResponse.json({ error: 'No failed billing event found' }, { status: 400 });
     }
     
     const historyRows = db.prepare('SELECT * FROM conversations WHERE customer_id = ? ORDER BY created_at ASC').all(customerId) as any[];
@@ -133,6 +125,6 @@ export async function POST(req: Request) {
     return NextResponse.json(responseObj);
   } catch (err: any) {
     console.error('Route error:', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }
