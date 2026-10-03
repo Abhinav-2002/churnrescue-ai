@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { getDb, resetDb } from '@/lib/db';
 import { handlePaymentFailed } from '@/lib/failures';
+import * as failures from '@/lib/failures';
 import * as paypal from '@/lib/paypal';
 
 describe('Failure Pipeline', () => {
@@ -92,6 +93,7 @@ describe('Webhook Signature Rejection', () => {
     
     // Mock verifyWebhookSignature to fail
     vi.spyOn(paypal, 'verifyWebhookSignature').mockResolvedValue(false);
+    const failuresSpy = vi.spyOn(failures, 'handlePaymentFailed');
 
     // Call webhook API logic
     const { POST } = await import('@/app/api/paypal/webhook/route');
@@ -115,5 +117,7 @@ describe('Webhook Signature Rejection', () => {
     // Verify handlePaymentFailed was not triggered effectively
     const count = db.prepare("SELECT COUNT(*) as c FROM billing_events WHERE paypal_order_id = 'INVALID_ORDER'").get() as any;
     expect(count.c).toBe(0);
+    // And the function itself was never invoked
+    expect(failuresSpy).not.toHaveBeenCalled();
   });
 });
