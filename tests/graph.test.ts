@@ -110,4 +110,67 @@ describe('Graph Level Tests', () => {
     const secondOrderId = offer2Accepted.paypal_order_id;
     expect(secondOrderId).not.toBe(firstOrderId);
   });
+
+  it('expired offer re-offer creates NEW offer and NEW order', async () => {
+    const db = getDb();
+    
+    let result = await graph.invoke({
+      messages: [{ role: 'user', content: 'discount please' }],
+      customerId: 'c_4',
+      billingEventId: 'evt_c_4',
+      customerContext: null,
+      activeOfferId: null,
+      intent: null,
+      decision: null
+    }, { configurable: { modelId: 'mock-model' } });
+    
+    const offer1 = db.prepare(`SELECT * FROM offers WHERE customer_id = 'c_4' ORDER BY ROWID DESC LIMIT 1`).get() as any;
+    
+    // Accept
+    mockInvokeResponse = { intent: 'accept', proposal: { action: 'partial_credit', final_amount_cents: 4000, reasoning: 'mock' } };
+    result = await graph.invoke({
+      messages: result.messages.concat([{ role: 'user', content: 'yes' }]),
+      customerId: 'c_4',
+      billingEventId: 'evt_c_4',
+      customerContext: null,
+      activeOfferId: null,
+      intent: null,
+      decision: null
+    }, { configurable: { modelId: 'mock-model' } });
+
+    // Expire the offer
+    db.prepare(`UPDATE offers SET expires_at = ? WHERE id = ?`).run(new Date(Date.now() - 10000).toISOString(), offer1.id);
+
+    // Can I get the offer again?
+    mockInvokeResponse = { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock2' } };
+    result = await graph.invoke({
+      messages: result.messages.concat([{ role: 'user', content: 'Can I get the offer again?' }]),
+      customerId: 'c_4',
+      billingEventId: 'evt_c_4',
+      customerContext: null,
+      activeOfferId: null,
+      intent: null,
+      decision: null
+    }, { configurable: { modelId: 'mock-model' } });
+
+    const offer2 = db.prepare(`SELECT * FROM offers WHERE customer_id = 'c_4' ORDER BY ROWID DESC LIMIT 1`).get() as any;
+    expect(offer2.id).not.toBe(offer1.id);
+
+    // Accept again
+    mockInvokeResponse = { intent: 'accept', proposal: { action: 'partial_credit', final_amount_cents: 4000, reasoning: 'mock' } };
+    result = await graph.invoke({
+      messages: result.messages.concat([{ role: 'user', content: 'yes' }]),
+      customerId: 'c_4',
+      billingEventId: 'evt_c_4',
+      customerContext: null,
+      activeOfferId: null,
+      intent: null,
+      decision: null
+    }, { configurable: { modelId: 'mock-model' } });
+
+    const updatedOffer2 = db.prepare(`SELECT * FROM offers WHERE id = ?`).get(offer2.id) as any;
+    expect(updatedOffer2.status).toBe('accepted');
+    expect(updatedOffer2.paypal_order_id).toBeDefined();
+    expect(updatedOffer2.paypal_order_id).not.toBe(offer1.paypal_order_id);
+  });
 });

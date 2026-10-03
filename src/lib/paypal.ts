@@ -4,10 +4,8 @@ let cachedAccessToken: string | null = null;
 let tokenExpiryTime: number = 0;
 
 export async function getAccessToken(): Promise<string> {
+  assertSandbox();
   const baseURL = process.env.PAYPAL_BASE_URL;
-  if (!baseURL || baseURL !== 'https://api-m.sandbox.paypal.com') {
-    throw new Error('PAYPAL_BASE_URL must be set to https://api-m.sandbox.paypal.com for Phase 1');
-  }
 
   const clientId = process.env.PAYPAL_CLIENT_ID;
   const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
@@ -167,6 +165,8 @@ export async function getOrder(orderId: string) {
   return response.json();
 }
 
-if (process.env.NODE_ENV !== 'test' && process.env.PAYPAL_BASE_URL !== 'https://api-m.sandbox.paypal.com') {
-  throw new Error('PAYPAL_BASE_URL must be set to https://api-m.sandbox.paypal.com for Phase 1');
+function assertSandbox() {
+  if (process.env.PAYPAL_BASE_URL !== 'https://api-m.sandbox.paypal.com') {
+    throw new Error('PAYPAL_BASE_URL must be set to https://api-m.sandbox.paypal.com');
+  }
 }
