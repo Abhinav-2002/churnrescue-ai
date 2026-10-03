@@ -108,24 +108,42 @@ Compose a polite response to the customer based on the action. If escalating, te
   
   if (state.intent === 'escalate' || state.decision?.action === 'escalate') {
     lastMsg = `Your account has been flagged for our billing team, and a specialist will follow up with you by email shortly.`;
-  } else if (!ok) {
-    const priceStr = state.customerContext?.plan_price_cents ? formatDollars(state.customerContext.plan_price_cents) : '';
-    const newStr = required ? formatDollars(required) : '';
-    if (state.intent === 'accept') {
-      if (state.decision?.action === 'pause') {
-        lastMsg = `Your subscription pause is confirmed.`;
+  } else {
+    const db = getDb();
+    const msgCount = db.prepare('SELECT COUNT(*) as c FROM conversations WHERE customer_id = ?').get(state.customerId) as { c: number };
+    
+    if (msgCount.c === 0) {
+      // First proactive message! Overwrite using validated code.
+      const priceStr = state.customerContext?.plan_price_cents ? formatDollars(state.customerContext.plan_price_cents) : '';
+      const usage = state.customerContext?.usage_percent;
+      const planName = state.customerContext?.plan_name;
+      const action = state.decision?.action;
+      const newStr = required ? formatDollars(required) : '';
+      
+      if (action === 'retry') {
+        lastMsg = `Your ${planName} renewal for ${priceStr} failed. Because your usage was ${usage}%, your plan stays at ${priceStr}. No discount available. Would you like to proceed?`;
+      } else if (action === 'pause') {
+        lastMsg = `Your ${planName} renewal for ${priceStr} failed. Because your usage was only ${usage}%, your subscription will be paused with no charge. Please confirm if you want to proceed.`;
       } else {
-        lastMsg = `Your amount of ${newStr} is confirmed. A PayPal button is below.`;
+        lastMsg = `Your ${planName} renewal for ${priceStr} failed. Because you only used ${usage}% of your limits, we can offer a new amount of ${newStr}. Would you like to proceed?`;
       }
-    } else {
-      if (state.decision?.action === 'retry') {
-        lastMsg = `Your payment failed. Your plan stays at ${priceStr}. No discount available. Would you like to proceed?`;
-      } else if (state.decision?.action === 'pause') {
-        lastMsg = `Your subscription will be paused with no charge. Please confirm if you want to proceed.`;
-      } else if (state.decision?.action === 'escalate') {
-        lastMsg = `Your account has been flagged for our billing team, and a specialist will follow up with you by email shortly.`;
+    } else if (!ok) {
+      const priceStr = state.customerContext?.plan_price_cents ? formatDollars(state.customerContext.plan_price_cents) : '';
+      const newStr = required ? formatDollars(required) : '';
+      if (state.intent === 'accept') {
+        if (state.decision?.action === 'pause') {
+          lastMsg = `Your subscription pause is confirmed.`;
+        } else {
+          lastMsg = `Your amount of ${newStr} is confirmed. A PayPal button is below.`;
+        }
       } else {
-        lastMsg = `We can offer a new amount of ${newStr}. Would you like to proceed?`;
+        if (state.decision?.action === 'retry') {
+          lastMsg = `Your payment failed. Your plan stays at ${priceStr}. No discount available. Would you like to proceed?`;
+        } else if (state.decision?.action === 'pause') {
+          lastMsg = `Your subscription will be paused with no charge. Please confirm if you want to proceed.`;
+        } else {
+          lastMsg = `We can offer a new amount of ${newStr}. Would you like to proceed?`;
+        }
       }
     }
   }

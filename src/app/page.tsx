@@ -57,7 +57,7 @@ export default function Home() {
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState('');
   const [nextStep, setNextStep] = useState('none');
-  const [offerInfo, setOfferInfo] = useState<{ offerId?: string, orderId?: string }>({});
+  const [offerInfo, setOfferInfo] = useState<{ offerId?: string, orderId?: string, recoveredAmountCents?: number }>({});
   
   const [loading, setLoading] = useState(false);
   const [typing, setTyping] = useState(false);
@@ -87,7 +87,7 @@ export default function Home() {
     setSystemMsg(null);
     if (!c) return;
     
-    if (c.status === 'at_risk') {
+    if (c.status !== 'healthy') {
       await loadState(c.id);
     }
   }
@@ -101,7 +101,7 @@ export default function Home() {
       
       setMessages(data.messages || []);
       setNextStep(data.nextStep || 'none');
-      setOfferInfo({ offerId: data.offerId, orderId: data.orderId });
+      setOfferInfo({ offerId: data.offerId, orderId: data.orderId, recoveredAmountCents: data.recoveredAmountCents });
       
       if (data.messages.length === 0 && data.customer.status === 'at_risk') {
         // Start conversation
@@ -270,7 +270,7 @@ export default function Home() {
                 setCustomers(data);
                 const updatedC = data.find((x: any) => x.id === selectedCustomer.id);
                 setSelectedCustomer(updatedC);
-                if (updatedC?.status === 'at_risk') {
+                if (updatedC?.status !== 'healthy') {
                   loadState(updatedC.id);
                 }
               }}
@@ -281,7 +281,7 @@ export default function Home() {
           </div>
         )}
 
-        {selectedCustomer && selectedCustomer.status === 'at_risk' && (
+        {selectedCustomer && selectedCustomer.status !== 'healthy' && (
           <div className="bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden flex flex-col h-[600px]">
             <div className="bg-blue-600 text-white p-4 font-semibold">
               Support Chat
@@ -339,45 +339,75 @@ export default function Home() {
             </div>
 
             <div className="p-4 border-t bg-gray-50">
-              {systemMsg?.kind === 'declined' && (
-                <div className="mb-3 flex gap-2">
-                  <button onClick={() => sendMessage('Can I get a new offer?')} className="bg-white border rounded-full px-3 py-1 text-sm text-blue-600 hover:bg-blue-50">Can I get a new offer?</button>
+              {selectedCustomer?.status === 'at_risk' ? (
+                <>
+                  {systemMsg?.kind === 'declined' && (
+                    <div className="mb-3 flex gap-2">
+                      <button onClick={() => sendMessage('Can I get a new offer?')} className="bg-white border rounded-full px-3 py-1 text-sm text-blue-600 hover:bg-blue-50">Can I get a new offer?</button>
+                    </div>
+                  )}
+                  {systemMsg?.kind === 'expired' && (
+                    <div className="mb-3 flex gap-2">
+                      <button onClick={() => sendMessage('Can I get the offer again?')} className="bg-white border rounded-full px-3 py-1 text-sm text-blue-600 hover:bg-blue-50">Can I get the offer again?</button>
+                    </div>
+                  )}
+                  {nextStep === 'none' && !typing && messages.length > 0 && messages[messages.length-1].role === 'agent' && (
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      <button onClick={() => sendMessage('Yes, proceed')} className="bg-white border border-gray-300 rounded-full px-3 py-1 text-sm hover:bg-gray-100">Yes, proceed</button>
+                      <button onClick={() => sendMessage('No thanks')} className="bg-white border border-gray-300 rounded-full px-3 py-1 text-sm hover:bg-gray-100">No thanks</button>
+                    </div>
+                  )}
+                  
+                  <form onSubmit={e => { e.preventDefault(); sendMessage(input); }} className="flex gap-2">
+                    <div className="flex-1 relative">
+                      <input
+                        type="text"
+                        value={input}
+                        onChange={e => setInput(e.target.value.slice(0, 500))}
+                        disabled={nextStep === 'escalated'}
+                        placeholder="Type your message..."
+                        className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                      />
+                      <div className="absolute right-3 top-2.5 text-xs text-gray-400">
+                        {input.length}/500
+                      </div>
+                    </div>
+                    <button 
+                      type="submit" 
+                      disabled={!input.trim() || nextStep === 'escalated'}
+                      className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      Send
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <div className="text-center font-medium text-gray-700 py-4">
+                  {selectedCustomer?.status === 'recovered' && (
+                    <div className="text-green-700 text-lg flex flex-col items-center gap-2">
+                      <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                      Account Recovered
+                      {offerInfo.recoveredAmountCents !== undefined && (
+                        <div className="text-sm font-normal text-green-600">
+                          Captured: ${(offerInfo.recoveredAmountCents / 100).toFixed(2)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {selectedCustomer?.status === 'paused' && (
+                    <div className="text-blue-700 text-lg flex flex-col items-center gap-2">
+                      <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6" /></svg>
+                      Subscription Paused
+                    </div>
+                  )}
+                  {selectedCustomer?.status === 'escalated' && (
+                    <div className="text-orange-700 text-lg flex flex-col items-center gap-2">
+                      <svg className="w-8 h-8 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                      Account Escalated
+                    </div>
+                  )}
                 </div>
               )}
-              {systemMsg?.kind === 'expired' && (
-                <div className="mb-3 flex gap-2">
-                  <button onClick={() => sendMessage('Can I get the offer again?')} className="bg-white border rounded-full px-3 py-1 text-sm text-blue-600 hover:bg-blue-50">Can I get the offer again?</button>
-                </div>
-              )}
-              {nextStep === 'none' && !typing && messages.length > 0 && messages[messages.length-1].role === 'agent' && (
-                <div className="mb-3 flex flex-wrap gap-2">
-                  <button onClick={() => sendMessage('Yes, proceed')} className="bg-white border border-gray-300 rounded-full px-3 py-1 text-sm hover:bg-gray-100">Yes, proceed</button>
-                  <button onClick={() => sendMessage('No thanks')} className="bg-white border border-gray-300 rounded-full px-3 py-1 text-sm hover:bg-gray-100">No thanks</button>
-                </div>
-              )}
-              
-              <form onSubmit={e => { e.preventDefault(); sendMessage(input); }} className="flex gap-2">
-                <div className="flex-1 relative">
-                  <input
-                    type="text"
-                    value={input}
-                    onChange={e => setInput(e.target.value.slice(0, 500))}
-                    disabled={nextStep === 'escalated'}
-                    placeholder="Type your message..."
-                    className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-                  />
-                  <div className="absolute right-3 top-2.5 text-xs text-gray-400">
-                    {input.length}/500
-                  </div>
-                </div>
-                <button 
-                  type="submit" 
-                  disabled={!input.trim() || nextStep === 'escalated'}
-                  className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50"
-                >
-                  Send
-                </button>
-              </form>
             </div>
           </div>
         )}

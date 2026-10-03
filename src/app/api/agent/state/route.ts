@@ -54,6 +54,14 @@ export async function GET(req: Request) {
       }
     }
 
+    let recoveredAmountCents = null;
+    if (customer.status === 'recovered') {
+      const rec = db.prepare('SELECT recovered_amount_cents FROM recoveries WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customerId) as any;
+      if (rec) {
+        recoveredAmountCents = rec.recovered_amount_cents;
+      }
+    }
+
     return NextResponse.json({
       customer: {
         status: customer.status
@@ -62,7 +70,8 @@ export async function GET(req: Request) {
       nextStep,
       ...(offerId && { offerId }),
       ...(orderId && { orderId }),
-      ...(amountCents !== null && { amountCents })
+      ...(amountCents !== null && { amountCents }),
+      ...(recoveredAmountCents !== null && { recoveredAmountCents })
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

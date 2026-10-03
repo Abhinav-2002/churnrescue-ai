@@ -71,11 +71,17 @@ describe('Graph Level Tests', () => {
   });
 
   it('genuine decline keeps customer at_risk and next acceptance creates NEW order', async () => {
-    const db = getDb();
+    // 1. Agent makes an offer PROACTIVELY
+    mockInvokeResponse = { intent: 'negotiate', proposal: { action: 'partial_credit', final_amount_cents: 4000, discount_percent: 20, reasoning: 'mock' } };
+    await graph.invoke({ customerId: 'c_4', billingEventId: 'evt_c_4', messages: [new HumanMessage("Start the conversation proactively. The customer's payment failed. Propose an appropriate retention offer based on their usage.")] }, { configurable: { modelId: 'mock' } });
     
-    // 1. Agent makes an offer
-    mockInvokeResponse = { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock' } };
-    await graph.invoke({ customerId: 'c_4', billingEventId: 'evt_c_4', messages: [new HumanMessage("discount")] }, { configurable: { modelId: 'mock' } });
+    const db = getDb();
+    const msgs = db.prepare('SELECT * FROM conversations WHERE customer_id = ? ORDER BY created_at ASC').all('c_4') as any[];
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].role).toBe('agent');
+    expect(msgs[0].text).toContain('Your Pro renewal for $50.00 failed');
+    expect(msgs[0].text).toContain('Because you only used 45% of your limits, we can offer a new amount of $40.00.');
+    expect(msgs[0].text).toContain('Would you like to proceed?');
     
     const offer1 = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY ROWID DESC LIMIT 1').get('c_4') as any;
     

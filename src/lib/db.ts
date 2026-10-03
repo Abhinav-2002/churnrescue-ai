@@ -18,7 +18,8 @@ export function getDb() {
     
     initDb();
   }
-  return globalThis._sqliteDb;
+  migrateOffers(globalThis._sqliteDb);
+    return globalThis._sqliteDb;
 }
 
 function initDb() {
@@ -104,27 +105,21 @@ function initDb() {
   }
 }
 
-/**
- * Phase 4 offer columns. ALTER TABLE ... ADD COLUMN is idempotent here (only added when missing),
- * so an existing data.db from Phase 2/3 is upgraded in place.
- * Offer status values: pending | accepted | declined | superseded | paid | completed.
- * paypal_order_status values: created | declined | completed.
- */
-function migrateOffers(db: Database.Database) {
+export const MIGRATIONS = [
+  { name: 'paypal_order_id', ddl: 'paypal_order_id TEXT NULL' },
+  { name: 'paypal_order_status', ddl: "paypal_order_status TEXT NULL CHECK(paypal_order_status IS NULL OR paypal_order_status IN ('created', 'payer_action_required', 'approved', 'captured', 'declined', 'completed', 'failed'))" },
+  { name: 'paypal_approve_url', ddl: 'paypal_approve_url TEXT NULL' },
+  { name: 'discount_percent', ddl: 'discount_percent INTEGER NULL CHECK(discount_percent IS NULL OR (discount_percent >= 0 AND discount_percent <= 50))' },
+  { name: 'target_plan', ddl: 'target_plan TEXT NULL' },
+  { name: 'accepted_at', ddl: 'accepted_at TEXT NULL' },
+  { name: 'capturing_at', ddl: 'capturing_at TEXT NULL' }
+];
+
+export function migrateOffers(db: Database.Database) {
   const cols = new Set((db.prepare('PRAGMA table_info(offers)').all() as { name: string }[]).map((c) => c.name));
-  const add = (name: string, ddl: string) => {
-    if (!cols.has(name)) db.exec(`ALTER TABLE offers ADD COLUMN ${ddl}`);
-  };
-  add('paypal_order_id', 'paypal_order_id TEXT NULL');
-  add(
-    'paypal_order_status',
-    "paypal_order_status TEXT NULL CHECK(paypal_order_status IS NULL OR paypal_order_status IN ('created', 'payer_action_required', 'approved', 'captured', 'declined', 'completed', 'failed'))",
-  );
-  add('paypal_approve_url', 'paypal_approve_url TEXT NULL');
-  add('discount_percent', 'discount_percent INTEGER NULL CHECK(discount_percent IS NULL OR (discount_percent >= 0 AND discount_percent <= 50))');
-  add('target_plan', 'target_plan TEXT NULL');
-  add('accepted_at', 'accepted_at TEXT NULL');
-  add('capturing_at', 'capturing_at TEXT NULL');
+  for (const m of MIGRATIONS) {
+    if (!cols.has(m.name)) db.exec(`ALTER TABLE offers ADD COLUMN ${m.ddl}`);
+  }
 }
 
 export function seedDb() {

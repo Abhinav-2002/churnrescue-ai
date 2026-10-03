@@ -16,20 +16,12 @@ export async function POST(req: Request) {
     const billingEvent = db.prepare(`SELECT id FROM billing_events WHERE customer_id = ? AND status = 'failed' ORDER BY created_at DESC LIMIT 1`).get(customerId) as any;
     if (!billingEvent) return NextResponse.json({ error: 'No failed billing event found' }, { status: 400 });
 
-    const initialText = "Hello, I see my payment failed. What are my options?";
+    const instruction = "Start the conversation proactively. The customer's payment failed. Propose an appropriate retention offer based on their usage.";
     
-    db.prepare(`INSERT INTO conversations (id, customer_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)`).run(
-      `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      customerId,
-      'customer',
-      initialText,
-      new Date().toISOString()
-    );
-
     const state = {
       customerId,
       billingEventId: billingEvent.id,
-      messages: [new HumanMessage(initialText)]
+      messages: [new HumanMessage(instruction)]
     };
 
     const out = await Promise.race([
