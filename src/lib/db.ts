@@ -3,6 +3,7 @@ import path from 'path';
 
 declare global {
   var _sqliteDb: Database.Database | undefined;
+  var _migrationsRun: boolean | undefined;
 }
 
 export function getDb() {
@@ -18,8 +19,11 @@ export function getDb() {
     
     initDb();
   }
-  migrateOffers(globalThis._sqliteDb);
-    return globalThis._sqliteDb;
+  if (!globalThis._migrationsRun) {
+    migrateOffers(globalThis._sqliteDb);
+    globalThis._migrationsRun = true;
+  }
+  return globalThis._sqliteDb;
 }
 
 function initDb() {

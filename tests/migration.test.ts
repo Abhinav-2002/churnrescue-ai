@@ -1,11 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { MIGRATIONS, migrateOffers } from '../src/lib/db';
+import { MIGRATIONS, getDb } from '../src/lib/db';
 
 describe('Database Migration', () => {
   let tempDb: Database.Database;
 
   beforeEach(() => {
+    // We mock process.env.SQLITE_PATH to create an isolated DB via getDb()
+    process.env.SQLITE_PATH = ':memory:';
+    globalThis._sqliteDb = undefined;
+    globalThis._migrationsRun = undefined;
+
     tempDb = new Database(':memory:');
     tempDb.pragma('foreign_keys = ON');
 
@@ -42,16 +47,23 @@ describe('Database Migration', () => {
         FOREIGN KEY(billing_event_id) REFERENCES billing_events(id)
       );
     `);
+    
+    // Set the global db directly so getDb() just runs migrations
+    globalThis._sqliteDb = tempDb;
   });
 
   afterEach(() => {
     tempDb.close();
+    globalThis._sqliteDb = undefined;
+    globalThis._migrationsRun = undefined;
+    delete process.env.SQLITE_PATH;
   });
 
   it('runs the init/migration and asserts every expected column exists', () => {
-    migrateOffers(tempDb);
+    // Calling getDb() will trigger migrations because _migrationsRun is undefined
+    const db = getDb();
 
-    const cols = tempDb.prepare('PRAGMA table_info(offers)').all() as { name: string }[];
+    const cols = db.prepare('PRAGMA table_info(offers)').all() as { name: string }[];
     const colNames = cols.map(c => c.name);
 
     for (const m of MIGRATIONS) {

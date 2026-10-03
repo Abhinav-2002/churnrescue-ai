@@ -91,7 +91,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ offerId
              if (recheckOrder.status === 'COMPLETED') {
                capturedAmountStr = recheckOrder.purchase_units[0].payments.captures[0].amount.value;
              } else {
-               db.prepare(`UPDATE offers SET status = 'failed' WHERE id = ?`).run(offer.id);
+               db.prepare(`UPDATE offers SET status = 'failed', paypal_order_status = 'declined' WHERE id = ?`).run(offer.id);
                return NextResponse.json({ error: 'declined' }, { status: 400 });
              }
            } catch(e) {
@@ -100,7 +100,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ offerId
            }
         } else {
           console.error('PayPal Capture Declined:', captureResult.body);
-          db.prepare(`UPDATE offers SET status = 'failed' WHERE id = ?`).run(offer.id);
+          db.prepare(`UPDATE offers SET status = 'failed', paypal_order_status = 'declined' WHERE id = ?`).run(offer.id);
           return NextResponse.json({ error: 'declined' }, { status: 400 }); 
         }
       } else {
@@ -126,7 +126,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ offerId
         VALUES (?, ?, ?, ?, ?, ?)
       `).run(recoveryId, customer.id, offer.billing_event_id, customer.plan_price_cents, capturedAmountCents, offer.paypal_order_id);
       
-      db.prepare(`UPDATE offers SET status = 'captured' WHERE id = ?`).run(offer.id);
+      db.prepare(`UPDATE offers SET status = 'captured', paypal_order_status = 'captured' WHERE id = ?`).run(offer.id);
       db.prepare(`UPDATE customers SET status = 'recovered' WHERE id = ?`).run(customer.id);
       db.prepare(`UPDATE billing_events SET status = 'recovered' WHERE id = ?`).run(offer.billing_event_id);
     })();

@@ -61,11 +61,12 @@ describe('Capture Endpoint', () => {
     const res = await POST(req, { params: { offerId: 'off_1' } });
     expect(res.status).toBe(200);
 
-    const customer = db.prepare(`SELECT status FROM customers WHERE id = 'c_1'`).get();
+    const customer = db.prepare(`SELECT status FROM customers WHERE id = 'c_1'`).get() as any;
     expect(customer.status).toBe('recovered');
 
-    const offer = db.prepare(`SELECT status FROM offers WHERE id = 'off_1'`).get();
+    const offer = db.prepare(`SELECT status, paypal_order_status FROM offers WHERE id = 'off_1'`).get() as any;
     expect(offer.status).toBe('captured');
+    expect(offer.paypal_order_status).toBe('captured');
 
     const billingEvent = db.prepare(`SELECT status FROM billing_events WHERE id = 'be_1'`).get();
     expect(billingEvent.status).toBe('recovered');

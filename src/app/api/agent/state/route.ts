@@ -47,9 +47,9 @@ export async function GET(req: Request) {
       }
     }
 
-    if (nextStep === 'none' && customer.status === 'at_risk' && convs.length > 0) {
-      const lastMsg = convs[convs.length - 1];
-      if (lastMsg.role === 'agent' && lastMsg.text.includes('flagged for our billing team')) {
+    if (nextStep === 'none' && customer.status === 'at_risk') {
+      const escCount = db.prepare('SELECT COUNT(*) as c FROM agent_actions WHERE customer_id = ? AND action = ?').get(customerId, 'escalate') as any;
+      if (escCount.c > 0) {
         nextStep = 'escalated';
       }
     }

@@ -49,8 +49,8 @@ describe('State Endpoint', () => {
     expect(data.orderId).toBeUndefined();
   });
 
-  it('returns nextStep escalated if agent message contains flagged text', async () => {
-    db.prepare(`INSERT INTO conversations (id, customer_id, role, text, created_at) VALUES ('msg_1', 'c_1', 'agent', 'Your account has been flagged for our billing team', ?)`).run(new Date().toISOString());
+  it('returns nextStep escalated if agent_actions has escalate row', async () => {
+    db.prepare(`INSERT INTO agent_actions (id, customer_id, billing_event_id, action, reasoning, details_json) VALUES ('act_1', 'c_1', 'be_1', 'escalate', 'test', '{}')`).run();
 
     const res = await GET(makeReq('http://localhost/api/agent/state?customerId=c_1'));
     const data = await res.json();

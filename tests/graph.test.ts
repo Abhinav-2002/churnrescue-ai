@@ -70,18 +70,19 @@ describe('Graph Level Tests', () => {
     expect(lastMsg).toBe('Your account has been flagged for our billing team, and a specialist will follow up with you by email shortly.');
   });
 
-  it('genuine decline keeps customer at_risk and next acceptance creates NEW order', async () => {
+  it("first stored message is role agent, contains the failed amount and the offer amount, and no customer-role message exists before the customer types", async () => {
     // 1. Agent makes an offer PROACTIVELY
     mockInvokeResponse = { intent: 'negotiate', proposal: { action: 'partial_credit', final_amount_cents: 4000, discount_percent: 20, reasoning: 'mock' } };
+    mockComposeResponse = 'I hallucinate strings';
     await graph.invoke({ customerId: 'c_4', billingEventId: 'evt_c_4', messages: [new HumanMessage("Start the conversation proactively. The customer's payment failed. Propose an appropriate retention offer based on their usage.")] }, { configurable: { modelId: 'mock' } });
     
     const db = getDb();
     const msgs = db.prepare('SELECT * FROM conversations WHERE customer_id = ? ORDER BY created_at ASC').all('c_4') as any[];
     expect(msgs.length).toBe(1);
     expect(msgs[0].role).toBe('agent');
-    expect(msgs[0].text).toContain('Your Pro renewal for $50.00 failed');
-    expect(msgs[0].text).toContain('Because you only used 45% of your limits, we can offer a new amount of $40.00.');
-    expect(msgs[0].text).toContain('Would you like to proceed?');
+    expect(msgs[0].text).toContain('$50.00');
+    expect(msgs[0].text).toContain('$40.00');
+    expect(msgs.filter(m => m.role === 'user').length).toBe(0);
     
     const offer1 = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY ROWID DESC LIMIT 1').get('c_4') as any;
     

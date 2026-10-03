@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import React from 'react';
 import Home from '../src/app/page';
@@ -16,6 +16,9 @@ global.fetch = mockFetch;
 window.HTMLElement.prototype.scrollIntoView = vi.fn();
 
 describe('Widget Smoke Test', () => {
+  afterEach(() => {
+    cleanup();
+  });
   beforeEach(() => {
     mockFetch.mockReset();
     mockFetch.mockImplementation((url) => {
@@ -39,8 +42,8 @@ describe('Widget Smoke Test', () => {
     });
   });
 
-  it('widget opens with the agent first message, restores without duplicate, and hides input on recovery', async () => {
-    const { unmount } = render(<Home />);
+  it('opens with the agent first message', async () => {
+    render(<Home />);
     
     await waitFor(() => {
       const select = screen.getByRole('combobox') as HTMLSelectElement;
@@ -48,12 +51,19 @@ describe('Widget Smoke Test', () => {
     });
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'c_1' } });
     
-    // a) Widget opens with agent's first message
     await waitFor(() => expect(screen.getByText('Hello, your payment failed.')).toBeTruthy());
     expect(screen.getByPlaceholderText('Type your message...')).toBeTruthy();
+  });
 
-    // b) Reload restores same conversation without duplicate
-    // We simulate a reload by unmounting and remounting, which triggers fetch /api/agent/state again
+  it('reload restores without duplicate', async () => {
+    render(<Home />);
+    await waitFor(() => {
+      const select = screen.getByRole('combobox') as HTMLSelectElement;
+      expect(select.children.length).toBeGreaterThan(1);
+    });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'c_1' } });
+    await waitFor(() => expect(screen.getByText('Hello, your payment failed.')).toBeTruthy());
+
     cleanup();
     render(<Home />);
     await waitFor(() => {
@@ -64,10 +74,11 @@ describe('Widget Smoke Test', () => {
     
     await waitFor(() => {
       const msgs = screen.getAllByText('Hello, your payment failed.');
-      expect(msgs.length).toBe(1); // No duplicates
+      expect(msgs.length).toBe(1);
     });
+  });
 
-    // c) Chips and input are hidden once state is recovered
+  it('chips and input hidden when recovered', async () => {
     mockFetch.mockImplementation((url) => {
       if (url === '/api/customers') {
         return Promise.resolve({
@@ -89,10 +100,7 @@ describe('Widget Smoke Test', () => {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
     });
 
-    // Trigger reload for recovered state by remounting
-    cleanup();
     render(<Home />);
-    
     await waitFor(() => {
       const select = screen.getByRole('combobox') as HTMLSelectElement;
       expect(select.children.length).toBeGreaterThan(1);
@@ -102,8 +110,8 @@ describe('Widget Smoke Test', () => {
     await waitFor(() => {
       expect(screen.getByText(/Account Recovered/)).toBeTruthy();
       expect(screen.getByText(/Captured: \$40\.00/)).toBeTruthy();
-      expect(screen.queryByPlaceholderText('Type your message...')).toBeNull(); // input hidden
-      expect(screen.queryByText('Yes, proceed')).toBeNull(); // chips hidden
+      expect(screen.queryByPlaceholderText('Type your message...')).toBeNull();
+      expect(screen.queryByText('Yes, proceed')).toBeNull();
     });
   });
 });

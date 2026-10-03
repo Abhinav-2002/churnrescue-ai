@@ -107,12 +107,18 @@ Compose a polite response to the customer based on the action. If escalating, te
   const { ok } = checkMessageAmounts(lastMsg, required, allowed);
   
   if (state.intent === 'escalate' || state.decision?.action === 'escalate') {
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO agent_actions (id, customer_id, billing_event_id, action, reasoning, details_json)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(`act_${Date.now()}_${Math.random().toString(36).substring(2,7)}`, state.customerId, state.billingEventId, 'escalate', 'Flagged by rules', '{}');
+    
     lastMsg = `Your account has been flagged for our billing team, and a specialist will follow up with you by email shortly.`;
   } else {
     const db = getDb();
     const msgCount = db.prepare('SELECT COUNT(*) as c FROM conversations WHERE customer_id = ?').get(state.customerId) as { c: number };
     
-    if (msgCount.c === 0) {
+    if (msgCount.c === 0 && !ok) {
       // First proactive message! Overwrite using validated code.
       const priceStr = state.customerContext?.plan_price_cents ? formatDollars(state.customerContext.plan_price_cents) : '';
       const usage = state.customerContext?.usage_percent;
@@ -127,7 +133,7 @@ Compose a polite response to the customer based on the action. If escalating, te
       } else {
         lastMsg = `Your ${planName} renewal for ${priceStr} failed. Because you only used ${usage}% of your limits, we can offer a new amount of ${newStr}. Would you like to proceed?`;
       }
-    } else if (!ok) {
+    } else if (msgCount.c > 0 && !ok) {
       const priceStr = state.customerContext?.plan_price_cents ? formatDollars(state.customerContext.plan_price_cents) : '';
       const newStr = required ? formatDollars(required) : '';
       if (state.intent === 'accept') {
