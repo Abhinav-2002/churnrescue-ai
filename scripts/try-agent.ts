@@ -71,6 +71,8 @@ async function main() {
   seedDb();
   
   await runProactive('c_4');
+  await runProactive('c_4');
+  await runProactive('c_4');
   await runProactive('c_2');
 }
 

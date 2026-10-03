@@ -13,6 +13,7 @@ const GraphState = Annotation.Root({
   customerContext: Annotation<CustomerContext | null>({ reducer: (a, b) => b !== undefined ? b : a, default: () => null }),
   activeOfferId: Annotation<string | null>({ reducer: (a, b) => b !== undefined ? b : a, default: () => null }),
   intent: Annotation<string | null>({ reducer: (a, b) => b !== undefined ? b : a, default: () => null }),
+  rawProposal: Annotation<Proposal | null>({ reducer: (a, b) => b !== undefined ? b : a, default: () => null }),
   decision: Annotation<ValidatedDecision | null>({ reducer: (a, b) => b !== undefined ? b : a, default: () => null })
 });
 
@@ -57,18 +58,18 @@ If usage_percent >= 60, retry only.
   const start = Date.now();
   const result = await structuredLlm.invoke([{ role: 'system', content: sysMsg }, ...state.messages]);
   if (process.env.DEBUG_TIMING === '1') console.log(`[Timer] decide: ${Date.now() - start}ms`);
-  return { intent: result.intent, decision: result.proposal };
+  return { intent: result.intent, rawProposal: result.proposal };
 }
 
 async function validate_guardrails(state: typeof GraphState.State) {
   const startNode = Date.now();
-  if (!state.decision) return state; 
+  if (!state.rawProposal) return state; 
   
   const db = getDb();
   const lastMsg = state.messages[state.messages.length - 1].content as string;
   const escalations = detectEscalation(lastMsg);
   
-  const validated = validateProposal(state.decision as any as Proposal, state.customerContext!, { escalationKeywords: escalations });
+  const validated = validateProposal(state.rawProposal!, state.customerContext!, { escalationKeywords: escalations });
   
   if (state.intent === 'accept' && state.activeOfferId) {
     db.prepare(`UPDATE offers SET status = 'accepted', accepted_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'`).run(state.activeOfferId);
@@ -112,10 +113,12 @@ Compose a polite response to the customer based on the action. If escalating, te
   const db = getDb();
   const msgCount = db.prepare('SELECT COUNT(*) as c FROM conversations WHERE customer_id = ?').get(state.customerId) as { c: number };
   if (msgCount.c === 0) {
+  if (process.env.DEBUG_TIMING === '1') {
     console.log(`\n--- DEBUG [${state.customerId}] ---`);
     console.log(`Raw model message: ${lastMsgRaw}`);
     console.log(`Allowed set (cents): ${JSON.stringify(allowed)}. Required (cents): ${required}`);
     console.log(`checkMessageAmounts result: ok=${ok}, reason=${reason}`);
+  }
   }
 
   if (state.intent === 'escalate' || state.decision?.action === 'escalate') {
@@ -165,7 +168,7 @@ Compose a polite response to the customer based on the action. If escalating, te
     }
   }
 
-  if (msgCount.c === 0) {
+  if (msgCount.c === 0 && process.env.DEBUG_TIMING === '1') {
     console.log(`Stored message: ${lastMsg}`);
     console.log(`------------------------------\n`);
   }
