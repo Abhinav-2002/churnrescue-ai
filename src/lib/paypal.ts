@@ -155,3 +155,14 @@ export async function verifyWebhookSignature(headers: Record<string, string>, ra
   
   return true;
 }
+
+export async function getOrder(orderId: string) {
+  const baseURL = process.env.PAYPAL_BASE_URL;
+  const accessToken = await getAccessToken();
+  const response = await fetch(`${baseURL}/v2/checkout/orders/${orderId}`, {
+    method: 'GET',
+    headers: { 'Authorization': `Bearer ${accessToken}` }
+  });
+  if (!response.ok) throw new Error(`Failed to get order: ${await response.text()}`);
+  return response.json();
+}
