@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint", "check": "tsc --noEmit && npm run lint && vitest run"
+    "lint": "eslint",
+    "check": "tsc --noEmit && npm run lint && vitest run"
   },
   "dependencies": {
     "@langchain/core": "^1.2.14",
@@ -14,6 +15,8 @@
     "@langchain/langgraph": "^1.4.18",
     "@paypal/agent-toolkit": "^1.11.0",
     "@paypal/react-paypal-js": "^10.5.2",
+    "ag-grid-community": "^36.2.0",
+    "ag-grid-react": "^36.2.0",
     "better-sqlite3": "^13.0.3",
     "dotenv": "^18.0.5",
     "next": "16.3.8",
