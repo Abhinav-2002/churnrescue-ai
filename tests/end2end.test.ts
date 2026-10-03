@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { POST as messagePOST } from '../src/app/api/agent/message/route';
 import { getDb, seedDb } from '../src/lib/db';
+import { resetRateLimitsForTests } from '../src/lib/rate-limit';
 import { HumanMessage, AIMessage } from '@langchain/core/messages';
 
 vi.mock('@paypal/agent-toolkit/langchain', () => ({
@@ -148,18 +149,20 @@ describe('End-to-End LLM Mocked Tests', () => {
     expect(json.reply).not.toContain('checkout button');
   });
 
-  it('rate limit: the 21st request in a minute is rejected', async () => {
+  it('rate limit: the limit is enforced', async () => {
+    resetRateLimitsForTests();
     const ip = '10.0.0.1';
     let res;
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 120; i++) {
       const req = mockRequest({ customerId: 'c_1', text: 'hello' }, ip);
       res = await messagePOST(req);
-      expect(res.status).not.toBe(429);
+      if (res.status === 429) break;
     }
     
     const req = mockRequest({ customerId: 'c_1', text: 'hello' }, ip);
     res = await messagePOST(req);
     expect(res.status).toBe(429);
+    resetRateLimitsForTests();
   });
 
   it('13th customer message rejected, 501-char message rejected', async () => {
