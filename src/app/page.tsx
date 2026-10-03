@@ -5,7 +5,7 @@ import { PayPalProvider, PayPalOneTimePaymentButton, usePayPal, INSTANCE_LOADING
 import { mapCaptureResponse } from '@/lib/capture-mapper';
 
 function PayPalWrapper({ orderId, offerId, onCaptureResult }: { orderId: string, offerId: string, onCaptureResult: (res: any, status: number) => void }) {
-  const [{ loadingStatus }] = usePayPal();
+  const { loadingStatus } = usePayPal();
   const [isCapturing, setIsCapturing] = useState(false);
 
   if (loadingStatus === INSTANCE_LOADING_STATE.PENDING) {
@@ -141,7 +141,7 @@ export default function Home() {
       const res = await fetch('/api/agent/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customerId: selectedCustomer.id, message: text })
+        body: JSON.stringify({ customerId: selectedCustomer.id, text })
       });
       const data = await res.json();
       if (!res.ok) {

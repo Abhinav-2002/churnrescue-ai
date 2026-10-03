@@ -98,6 +98,15 @@ export async function POST(req: Request) {
       } else {
         reply += `Your payment failed. Your plan stays at ${formatDollars(customer.plan_price_cents)}. No discount available. Would you like to proceed?`;
       }
+      
+      db.prepare(`INSERT INTO conversations (id, customer_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)`).run(
+        `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        customerId,
+        'agent',
+        reply,
+        new Date().toISOString()
+      );
+
       return NextResponse.json({ reply, nextStep: 'none' });
     }
 
@@ -106,13 +115,6 @@ export async function POST(req: Request) {
     
     let nextStep = 'none';
     let responseObj: any = { reply: lastMsg, nextStep };
-    db.prepare(`INSERT INTO conversations (id, customer_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)`).run(
-      `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      customerId,
-      'agent',
-      lastMsg,
-      new Date().toISOString()
-    );
 
     if (out.intent === 'escalate' || out.decision?.action === 'escalate') {
       responseObj.nextStep = 'escalated';
