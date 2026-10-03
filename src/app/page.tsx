@@ -1,5 +1,4 @@
 import { getDb } from '@/lib/db';
-import { redirect } from 'next/navigation';
 import ClientPage from './ClientPage';
 
 export const dynamic = 'force-dynamic';
@@ -7,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export default async function Page({
   searchParams,
 }: {
-  searchParams: { customerId?: string }
+  searchParams: Promise<{ customerId?: string }>
 }) {
   const db = getDb();
   
@@ -17,13 +16,9 @@ export default async function Page({
     return <div>No customers found.</div>;
   }
 
-  const selectedCustomerId = searchParams.customerId || customers[0].id;
+  const resolvedParams = await searchParams;
+  const selectedCustomerId = resolvedParams.customerId || customers[0].id;
   const selectedCustomer = customers.find(c => c.id === selectedCustomerId) || customers[0];
-
-  // If we fell back to the first customer because the ID was invalid or missing, redirect to the clean URL
-  if (!searchParams.customerId || searchParams.customerId !== selectedCustomer.id) {
-    redirect(`/?customerId=${selectedCustomer.id}`);
-  }
 
   return (
     <ClientPage 

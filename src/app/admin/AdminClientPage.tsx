@@ -59,7 +59,7 @@ export default function AdminClientPage({ customers, events }: { customers: any[
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{c.name}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{c.plan_name}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <span className={\`px-2 inline-flex text-xs leading-5 font-semibold rounded-full \${isAtRisk ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}\`}>
+                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${isAtRisk ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
                       {c.status}
                     </span>
                     {latestEvent && latestEvent.status === 'failed' && (
