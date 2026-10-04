@@ -50,7 +50,7 @@ async function decide(state: typeof GraphState.State, config: any) {
   const llm = getLlm(modelId);
   const z = require('zod').z; const structuredLlm = llm.withStructuredOutput(z.object({ intent: z.enum(['negotiate', 'accept', 'decline', 'cancel', 'neutral', 'escalate']), proposal: proposalSchema }), { name: 'decision' });
   
-  const pushbacks = state.messages.filter((m: any) => m._getType() === 'human' && m.content !== 'Hello, I see my payment failed.').length;
+  const pushbacks = (getDb().prepare(`SELECT COUNT(*) as c FROM offers WHERE customer_id = ? AND kind = 'partial_credit'`).get(state.customerId) as { c: number }).c;
   const lower_tier_available = pushbacks < 2 && (state.customerContext?.usage_percent || 100) < 60;
   const sysMsg = `You are a billing retention agent.
 Customer context: Plan ${state.customerContext?.plan_name} at ${formatDollars(state.customerContext?.plan_price_cents ?? 0)}. Usage: ${state.customerContext?.usage_percent}%.
@@ -76,7 +76,7 @@ async function validate_guardrails(state: typeof GraphState.State) {
   const lastMsg = state.messages[state.messages.length - 1].content as string;
   const escalations = detectEscalation(lastMsg);
   
-  const pushbacks = state.messages.filter((m: any) => m._getType() === 'human' && m.content !== 'Hello, I see my payment failed.').length;
+  const pushbacks = (getDb().prepare(`SELECT COUNT(*) as c FROM offers WHERE customer_id = ? AND kind = 'partial_credit'`).get(state.customerId) as { c: number }).c;
   const cancelCount = state.messages.filter((m: any) => m._getType() === 'human' && /cancel|close|delete|terminate/i.test(m.content as string)).length;
   const validated = validateProposal(state.rawProposal!, state.customerContext!, { escalationKeywords: escalations, intent: state.intent || undefined, pushbacks, cancelCount });
   
@@ -116,7 +116,7 @@ Compose a polite response to the customer based on the action. If escalating, te
 
   const required = state.decision?.final_amount_cents ?? null;
   const allowed = state.customerContext?.plan_price_cents ? [state.customerContext.plan_price_cents] : [];
-  const pushbacks = state.messages.filter((m: any) => m._getType() === 'human' && m.content !== 'Hello, I see my payment failed.').length;
+  const pushbacks = (getDb().prepare(`SELECT COUNT(*) as c FROM offers WHERE customer_id = ? AND kind = 'partial_credit'`).get(state.customerId) as { c: number }).c;
   const lower_tier_available = pushbacks < 2 && (state.customerContext?.usage_percent || 100) < 60;
   let { ok, reason } = checkMessageAmounts(lastMsg, required, allowed);
   if (ok && lower_tier_available && /(lowest|unable to offer|can\'t go lower|cannot go lower)/i.test(lastMsg)) {

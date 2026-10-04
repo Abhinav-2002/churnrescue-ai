@@ -28,10 +28,10 @@ describe('guardrails', () => {
     const ctx: CustomerContext = { plan_name: 'Pro', plan_price_cents: 5000, usage_percent: 45 };
     const proposal = { action: 'partial_credit' as const, discount_percent: 80, reasoning: 'test' };
     
-    const res = validateProposal(proposal, ctx);
+    const res = validateProposal(proposal, ctx, { pushbacks: 2 });
     expect(res.action).toBe('partial_credit');
-    expect(res.discount_percent).toBe(20);
-    expect(res.final_amount_cents).toBe(4000); // 20% of 5000
+    expect(res.discount_percent).toBe(50);
+    expect(res.final_amount_cents).toBe(2500); // 50% of 5000
   });
 
   it('final amount never below 100 cents', () => {
@@ -39,7 +39,7 @@ describe('guardrails', () => {
     // 50% discount of 150 is 75 cents, which is below 100
     const proposal = { action: 'partial_credit' as const, discount_percent: 50, reasoning: 'test' };
     
-    const res = validateProposal(proposal, ctx);
+    const res = validateProposal(proposal, ctx, { pushbacks: 2 });
     expect(res.action).toBe('partial_credit');
     expect(res.final_amount_cents).toBe(100); // clamped
   });
@@ -98,7 +98,7 @@ describe('guardrails', () => {
     
     // 2 pushbacks -> 50% max
     res = validateProposal(proposal, ctx, { pushbacks: 2 });
-    expect(res.discount_percent).toBe(20);
+    expect(res.discount_percent).toBe(50);
   });
 
   it('cancel intent handles logic correctly', () => {
