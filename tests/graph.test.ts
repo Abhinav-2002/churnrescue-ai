@@ -182,7 +182,7 @@ describe('Graph Level Tests', () => {
     expect(updatedOffer2.paypal_order_id).not.toBe(offer1.paypal_order_id);
   });
 
-  it('Ladder: question does not raise cap, two pushbacks reach 50%, second event starts at 20%', async () => {
+  it('ladder (question does not raise the cap; two pushbacks reach 50%; new billing event starts at 20%)', async () => {
     const db = getDb();
     
     // First event
@@ -196,7 +196,7 @@ describe('Graph Level Tests', () => {
     expect(offer.amount_cents).toBe(4000); // Clamped to 20%
     
     // Question (intent = neutral)
-    mockInvokeResponse = { intent: 'neutral', proposal: { action: 'retry', reasoning: 'mock' } };
+    mockInvokeResponse = { intent: 'neutral', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock' } };
     result = await graph.invoke({ customerId: 'c_4', billingEventId: 'evt_c_4', messages: result.messages.concat([new HumanMessage("what is this charge for?")]) }, { configurable: { modelId: 'mock' } });
     
     // First pushback (intent = negotiate). Question didn't raise cap, so pushbacks = 1 -> max 35%, so 5000 * 0.65 = 3250

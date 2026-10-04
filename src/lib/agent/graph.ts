@@ -45,7 +45,7 @@ function getLlm(modelId: string) {
 /** Count partial_credit offers for THIS billing event only (used to step the concession ladder). */
 function countCreditOffersForEvent(customerId: string, billingEventId: string): number {
   const row = getDb().prepare(
-    `SELECT COUNT(*) as c FROM offers WHERE customer_id = ? AND billing_event_id = ? AND kind = 'partial_credit'`
+    `SELECT count(DISTINCT amount_cents) as c FROM offers WHERE customer_id = ? AND billing_event_id = ? AND kind = 'partial_credit'`
   ).get(customerId, billingEventId) as { c: number };
   return row.c;
 }
@@ -213,7 +213,11 @@ Compose a polite response to the customer based on the action. If escalating, te
         lastMsg = `Your amount of ${newStr} is confirmed. A PayPal button is below.`;
       }
     } else if (action === 'retry') {
-      lastMsg = `Your ${planName} renewal of ${priceStr} didn't go through. Would you like to retry the payment at ${priceStr}?`;
+      if (state.intent === 'cancel') {
+        lastMsg = `Your ${planName} renewal of ${priceStr} didn't go through. Would you like to retry the payment at ${priceStr}, or would you prefer to pause your account?`;
+      } else {
+        lastMsg = `Your ${planName} renewal of ${priceStr} didn't go through. Would you like to retry the payment at ${priceStr}?`;
+      }
     } else if (action === 'pause') {
       lastMsg = `Your subscription will be paused with no charge. Please confirm if you want to proceed.`;
     } else {

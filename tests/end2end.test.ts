@@ -35,9 +35,8 @@ vi.mock('@langchain/google-vertexai', () => ({
           if (text.includes('yes, i accept')) {
              return { intent: 'accept', proposal: { action: 'retry', reasoning: 'mock' } };
           }
-          if (text.includes('give me the paypal link')) {
-             return { intent: 'neutral', proposal: { action: 'retry', reasoning: 'mock' } };
-          }
+          if (text.includes('give me the paypal link')) { return { intent: 'neutral', proposal: { action: 'retry', reasoning: 'mock' } }; }
+if (text.includes('make it $20')) { return { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock' } }; }
           
           return { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock' } };
         }
@@ -72,7 +71,7 @@ describe('End-to-End LLM Mocked Tests', () => {
     vi.clearAllMocks();
   });
 
-  it('end to end: at_risk customer, agent makes an offer, customer says yes, offer accepted, order created through a mocked toolkit call, API returns nextStep pay with offerId and orderId and the amount equals the offer amount', async () => {
+  it('the amount in the last agent message equals the amount captured', async () => {
     const db = getDb();
     getDb().prepare('INSERT INTO billing_events (id, customer_id, type, amount_cents, status) VALUES (?, ?, ?, ?, ?)').run('evt_test', 'c_1', 'renewal', 5000, 'failed');
     
@@ -199,6 +198,28 @@ describe('End-to-End LLM Mocked Tests', () => {
     let json = await res.json();
     
     expect(json.reply).not.toContain('https://');
-    expect(json.reply).toContain('\.00');
+    expect(json.reply).toContain(`Your Starter renewal of $25.00 didn't go through.`);
   });
+
+  it('"make it $20" after a $12.50 offer does not accept a superseded offer', async () => {
+    const db = getDb();
+    db.prepare("INSERT INTO billing_events (id, customer_id, type, amount_cents, status) VALUES (?, ?, ?, ?, ?)").run('evt_supersede', 'c_1', 'renewal', 2500, 'failed');
+    
+    // Create superseded offer for $20
+    db.prepare("INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, status) VALUES (?, ?, ?, ?, ?, ?)").run('off_20', 'c_1', 'evt_supersede', 'partial_credit', 2000, 'superseded');
+    // Create pending offer for $12.50
+    db.prepare("INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, status) VALUES (?, ?, ?, ?, ?, ?)").run('off_12', 'c_1', 'evt_supersede', 'partial_credit', 1250, 'pending');
+    
+    // Send "make it $20"
+    let req = mockRequest({ customerId: 'c_1', text: 'make it $20' });
+    let res = await messagePOST(req);
+    let json = await res.json();
+    
+    expect(json.nextStep).toBe('none');
+    
+    // Verify superseded offer was not accepted
+    const oldOffer = db.prepare("SELECT status FROM offers WHERE id = 'off_20'").get() as any;
+    expect(oldOffer.status).toBe('superseded');
+  });
+
 });

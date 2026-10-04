@@ -81,7 +81,7 @@ describe('Widget Smoke Test', () => {
     });
   });
 
-  it('chips and input hidden when recovered', async () => {
+  it('widget refetch after confirm-pause AND after capture success',  async () => {
     mockFetch.mockImplementation((url) => {
       if (url === '/api/customers') {
         return Promise.resolve({

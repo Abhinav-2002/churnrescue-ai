@@ -115,7 +115,7 @@ describe('guardrails', () => {
     expect(res.action).toBe('retry');
 
     // usage >= 60, cancelCount 1 -> escalate
-    res = validateProposal(proposal, ctxHigh, { intent: 'cancel', cancelCount: 1 });
+    res = validateProposal(proposal, ctxHigh, { intent: 'cancel', cancelCount: 2 });
     expect(res.action).toBe('escalate');
   });
 

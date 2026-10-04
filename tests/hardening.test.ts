@@ -6,6 +6,17 @@ import { POST as CapturePost } from '../src/app/api/offers/[offerId]/capture/rou
 import { POST as ResetPost } from '../src/app/api/reset/route';
 import { POST as SimulatePost } from '../src/app/api/simulate-failure/route';
 import { isDemoMode } from '../src/lib/demo';
+vi.mock('@paypal/checkout-server-sdk', () => ({
+  core: { PayPalHttpClient: class {}, SandboxEnvironment: class {}, LiveEnvironment: class {} },
+  orders: { OrdersGetRequest: class {}, OrdersCaptureRequest: class {} }
+}));
+vi.mock('../src/lib/agent/llm', () => ({
+  getLlm: () => ({
+    withStructuredOutput: () => ({
+      invoke: async () => ({ intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock' } })
+    })
+  })
+}));
 import { rateLimit, resetRateLimitsForTests } from '../src/lib/rate-limit';
 
 function mockReq(url: string, ip: string = '127.0.0.1', body?: any) {
@@ -74,7 +85,7 @@ describe('Stage 5.7 Hardening', () => {
       expect(limitExceeded).toBe(true);
     });
 
-    it('10 requests from unknown IP within the global cap all succeed', { timeout: 20000 }, async () => {
+    it('10 requests from unknown IP within the global cap all succeed', async () => {
       // Simulate-failure limit is global 60, per-ip 60. Unknown IP means no 'x-forwarded-for' header or invalid one.
       const requests = Array.from({ length: 10 }, () => {
         const req = new Request('http://localhost/api/simulate-failure', { method: 'POST', body: JSON.stringify({ customerId: 'c_1' }) });

@@ -47,3 +47,5 @@ next-env.d.ts
 # scratch output files
 *_out*.txt
 matrix-out.txt
+*_out*.txt
+replay-out.txt
