@@ -238,7 +238,10 @@ export default function Home() {
     <div className="min-h-screen bg-gray-50 flex flex-col items-center py-10 px-4 font-sans text-gray-800">
       <div className="w-full max-w-3xl">
         <div className="mb-6 bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-          <h1 className="text-2xl font-bold mb-4">ChurnRescue AI Demo</h1>
+          <div className="flex justify-between items-center mb-4">
+            <h1 className="text-2xl font-bold">ChurnRescue AI Demo</h1>
+            <a href="/dashboard" className="text-blue-600 hover:underline font-medium">View Dashboard &rarr;</a>
+          </div>
           <div className="flex items-center gap-4">
             <select 
               className="border p-2 rounded flex-1"
@@ -294,8 +297,9 @@ export default function Home() {
 
         {selectedCustomer && selectedCustomer.status !== 'healthy' && (
           <div className="bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden flex flex-col h-[600px]">
-            <div className="bg-blue-600 text-white p-4 font-semibold">
-              Support Chat
+            <div className="bg-blue-600 text-white p-4 font-semibold flex justify-between items-center">
+              <span>Support Chat</span>
+              <a href="/dashboard" className="text-blue-100 hover:text-white text-sm font-normal underline">View Dashboard</a>
             </div>
             
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
