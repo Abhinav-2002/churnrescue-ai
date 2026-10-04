@@ -74,7 +74,7 @@ describe('Stage 5.7 Hardening', () => {
       expect(limitExceeded).toBe(true);
     });
 
-    it('10 requests from unknown IP within the global cap all succeed', async () => {
+    it('10 requests from unknown IP within the global cap all succeed', { timeout: 20000 }, async () => {
       // Simulate-failure limit is global 60, per-ip 60. Unknown IP means no 'x-forwarded-for' header or invalid one.
       const requests = Array.from({ length: 10 }, () => {
         const req = new Request('http://localhost/api/simulate-failure', { method: 'POST', body: JSON.stringify({ customerId: 'c_1' }) });

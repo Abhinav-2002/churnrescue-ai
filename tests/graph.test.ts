@@ -80,9 +80,10 @@ describe('Graph Level Tests', () => {
     const msgs = db.prepare('SELECT * FROM conversations WHERE customer_id = ? ORDER BY created_at ASC').all('c_4') as any[];
     expect(msgs.length).toBe(1);
     expect(msgs[0].role).toBe('agent');
-    expect(msgs[0].text).toContain('$50.00');
-    expect(msgs[0].text).toContain('$40.00');
-    expect(msgs.filter(m => m.role === 'user').length).toBe(0);
+    // First proactive message for usage<60: credit offer template
+    expect(msgs[0].text).toContain('$50.00');  // original price
+    expect(msgs[0].text).toContain('$40.00');  // discounted (20%)
+    expect(msgs.filter((m: any) => m.role === 'user').length).toBe(0);
     
     const offer1 = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY ROWID DESC LIMIT 1').get('c_4') as any;
     
@@ -180,4 +181,45 @@ describe('Graph Level Tests', () => {
     expect(updatedOffer2.paypal_order_id).toBeDefined();
     expect(updatedOffer2.paypal_order_id).not.toBe(offer1.paypal_order_id);
   });
+
+  it('Ladder: question does not raise cap, two pushbacks reach 50%, second event starts at 20%', async () => {
+    const db = getDb();
+    
+    // First event
+    db.prepare('UPDATE customers SET status = ? WHERE id = ?').run('at_risk', 'c_4');
+    
+    // Proactive offer (0 pushbacks -> max 20%, so 5000 * 0.8 = 4000)
+    mockInvokeResponse = { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 50, reasoning: 'mock' } };
+    let result = await graph.invoke({ customerId: 'c_4', billingEventId: 'evt_c_4', messages: [new HumanMessage("I need a discount")] }, { configurable: { modelId: 'mock' } });
+    
+    let offer = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY ROWID DESC LIMIT 1').get('c_4') as any;
+    expect(offer.amount_cents).toBe(4000); // Clamped to 20%
+    
+    // Question (intent = neutral)
+    mockInvokeResponse = { intent: 'neutral', proposal: { action: 'retry', reasoning: 'mock' } };
+    result = await graph.invoke({ customerId: 'c_4', billingEventId: 'evt_c_4', messages: result.messages.concat([new HumanMessage("what is this charge for?")]) }, { configurable: { modelId: 'mock' } });
+    
+    // First pushback (intent = negotiate). Question didn't raise cap, so pushbacks = 1 -> max 35%, so 5000 * 0.65 = 3250
+    mockInvokeResponse = { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 50, reasoning: 'mock' } };
+    result = await graph.invoke({ customerId: 'c_4', billingEventId: 'evt_c_4', messages: result.messages.concat([new HumanMessage("still too high")]) }, { configurable: { modelId: 'mock' } });
+    
+    offer = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY ROWID DESC LIMIT 1').get('c_4') as any;
+    expect(offer.amount_cents).toBe(3250); // Clamped to 35%
+
+    // Second pushback (intent = negotiate). pushbacks = 2 -> max 50%, so 5000 * 0.5 = 2500
+    mockInvokeResponse = { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 80, reasoning: 'mock' } };
+    result = await graph.invoke({ customerId: 'c_4', billingEventId: 'evt_c_4', messages: result.messages.concat([new HumanMessage("more discount")]) }, { configurable: { modelId: 'mock' } });
+    
+    offer = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY ROWID DESC LIMIT 1').get('c_4') as any;
+    expect(offer.amount_cents).toBe(2500); // Clamped to 50%
+
+    // Second billing event starts at 20%
+    db.prepare('INSERT INTO billing_events (id, customer_id, type, amount_cents, status) VALUES (?, ?, ?, ?, ?)').run('evt_c_4_2', 'c_4', 'renewal', 5000, 'failed');
+    mockInvokeResponse = { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 80, reasoning: 'mock' } };
+    result = await graph.invoke({ customerId: 'c_4', billingEventId: 'evt_c_4_2', messages: [new HumanMessage("discount again")] }, { configurable: { modelId: 'mock' } });
+    
+    offer = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY ROWID DESC LIMIT 1').get('c_4') as any;
+    expect(offer.amount_cents).toBe(4000); // Clamped to 20% again
+  });
+
 });

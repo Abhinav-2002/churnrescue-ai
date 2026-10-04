@@ -68,7 +68,7 @@ export function validateProposal(
       action = 'pause';
       clamps.push('cancel intent < 60 usage -> pause');
     } else {
-      if ((opts.cancelCount || 0) >= 1) {
+      if ((opts.cancelCount || 0) > 1) {
         return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps: ['cancel intent >= 60 usage twice -> escalate'] };
       } else {
         action = 'retry';

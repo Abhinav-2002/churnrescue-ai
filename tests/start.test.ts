@@ -46,6 +46,7 @@ describe('Start Endpoint', () => {
     expect(customerMsgs.length).toBe(0);
 
     const agentMsgs = msgs.filter(m => m.role === 'agent');
+    // First message: usage 45% < 60, so must be a credit offer
     expect(agentMsgs[0].text).toContain('Pro');
     expect(agentMsgs[0].text).toContain('$50.00');
     expect(agentMsgs[0].text).toContain('45%');

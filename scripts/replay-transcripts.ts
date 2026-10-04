@@ -39,6 +39,8 @@ async function runScenario(name: string, customerId: string, messages: string[])
   const startData = await startRes.json();
   console.log(`\n[Agent Proactive] Reply: ${startData.reply}`);
   console.log(`[Agent Proactive] Next Step: ${startData.nextStep}`);
+  // We can query db to know if template was used... Actually we don't have this in response. 
+  // Let's assume server prints it or we can check db agent_actions? No, graph.ts prints it to console.
   await printOffers(customerId);
   
   for (const text of messages) {
@@ -57,25 +59,27 @@ async function runScenario(name: string, customerId: string, messages: string[])
 }
 
 async function main() {
-  // c_2 has 5% usage
+  // A (usage 5: discount -> "can you do $10?" -> "yes" -> then "make it $20")
   await runScenario('A (Usage 5): ladder negotiation', 'c_7', [
     "can i get a discount",
-    "can i get 5 dollar",
     "can you do $10?",
-    "yes"
+    "yes",
+    "make it $20"
   ]);
 
+  // B (usage 5: "I want to cancel, I barely use this.")
   await runScenario('B (Usage 5): cancel', 'c_7', [
     "I want to cancel, I barely use this."
   ]);
 
-  // c_4 has 95% usage
-  await runScenario('C (Usage 95): decline -> cancel', 'c_2', [
+  // C (usage 95: "No thanks" -> "I want to cancel." -> "cancel my plan")
+  await runScenario('C (Usage 95): decline -> cancel -> escalate', 'c_2', [
     "No thanks",
     "I want to cancel.",
     "cancel my plan"
   ]);
 
+  // D (usage 5: "can I pause my account instead" -> confirm)
   await runScenario('D (Usage 5): pause', 'c_7', [
     "can I pause my account instead"
   ]);
@@ -91,6 +95,12 @@ async function main() {
   });
   console.log(`[Confirm Pause] OK: ${cpRes.ok}`);
   await printOffers('c_7');
+
+  // E (usage 45: "this is a chargeback")
+  // c_4 has 45% usage
+  await runScenario('E (Usage 45): chargeback escalation', 'c_4', [
+    "this is a chargeback"
+  ]);
 }
 
 main().catch(console.error);

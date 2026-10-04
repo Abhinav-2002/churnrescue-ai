@@ -246,4 +246,12 @@ describe('Capture Endpoint', () => {
     // captureOrder only called ONCE total
     expect(paypal.captureOrder).toHaveBeenCalledTimes(1);
   });
+
+  it('capture of a superseded offer is rejected with offer_superseded', async () => {
+    db.prepare("UPDATE offers SET status = 'superseded' WHERE id = 'off_1'").run();
+    const req = { headers: new Headers({"x-forwarded-for": "127.0.0.1"}), json: async () => ({}) } as any;
+    const res = await POST(req, { params: { offerId: 'off_1' } });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'offer_superseded' });
+  });
 });

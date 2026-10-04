@@ -43,3 +43,7 @@ next-env.d.ts
 *.db-journal
 *.db-wal
 *.db-shm
+
+# scratch output files
+*_out*.txt
+matrix-out.txt
