@@ -159,10 +159,6 @@ Compose a polite response to the customer based on the action. If escalating, te
   const templateUsed = { used: false, reason: '' };
 
   if (state.intent === 'escalate' || state.decision?.action === 'escalate') {
-    db.prepare(`
-      INSERT INTO agent_actions (id, customer_id, billing_event_id, action, reasoning, details_json)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(`act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`, state.customerId, state.billingEventId, 'escalate', 'Flagged by rules', '{}');
 
     lastMsg = `Your account has been flagged for our billing team, and a specialist will follow up with you by email shortly.`;
     templateUsed.used = true;
@@ -227,6 +223,21 @@ Compose a polite response to the customer based on the action. If escalating, te
 
   if (process.env.DEBUG_TIMING === '1') {
     console.log(`[compose] templateUsed=${templateUsed.used} reason="${templateUsed.reason}" finalMsg="${lastMsg}"`);
+  }
+
+  if (state.decision || state.intent === 'escalate') {
+    const actionName = state.decision?.action || 'escalate';
+    db.prepare(`
+      INSERT INTO agent_actions (id, customer_id, billing_event_id, action, reasoning, details_json)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(`act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`, state.customerId, state.billingEventId, actionName, state.rawProposal?.reasoning || 'Flagged by rules', JSON.stringify({
+      proposed_discount_percent: state.rawProposal?.discount_percent ?? null,
+      approved_discount_percent: state.decision?.discount_percent ?? null,
+      clamps: state.decision?.clamps ?? [],
+      template_used: templateUsed.used,
+      template_reason: templateUsed.reason,
+      ladder_step: state.ladderStep ?? 0
+    }));
   }
 
   finalMessages[finalMessages.length - 1].content = lastMsg;
