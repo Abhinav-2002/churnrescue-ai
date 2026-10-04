@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint", "check": "tsc --noEmit && npm run lint && vitest run"
+    "lint": "eslint",
+    "check": "tsc --noEmit && npm run lint && vitest run"
   },
   "dependencies": {
     "@langchain/core": "^1.2.14",
@@ -35,5 +36,8 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^5.0.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
