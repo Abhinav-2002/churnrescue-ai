@@ -36,6 +36,7 @@ export const LIMITS = {
   agentStart: { name: 'agent-start', globalPerWindow: 60, perIpPerWindow: 60, windowMs: 60_000 },
   agentMessage: { name: 'agent-message', globalPerWindow: 120, perIpPerWindow: 120, windowMs: 60_000 },
   capture: { name: 'capture', globalPerWindow: 120, perIpPerWindow: 120, windowMs: 60_000 },
+  dashboardMetrics: { name: 'dashboard-metrics', globalPerWindow: 300, perIpPerWindow: 300, windowMs: 60_000 },
 } satisfies Record<string, LimitSpec>;
 
 type Bucket = { count: number; resetAt: number };
