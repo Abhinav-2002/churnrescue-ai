@@ -48,11 +48,14 @@ async function decide(state: typeof GraphState.State, config: any) {
   const modelId = config?.configurable?.modelId || process.env.LLM_MODEL;
   
   const llm = getLlm(modelId);
-  const z = require('zod').z; const structuredLlm = llm.withStructuredOutput(z.object({ intent: z.enum(['negotiate', 'accept', 'decline', 'neutral', 'escalate']), proposal: proposalSchema }), { name: 'decision' });
+  const z = require('zod').z; const structuredLlm = llm.withStructuredOutput(z.object({ intent: z.enum(['negotiate', 'accept', 'decline', 'cancel', 'neutral', 'escalate']), proposal: proposalSchema }), { name: 'decision' });
   
+  const pushbacks = state.messages.filter((m: any) => m._getType() === 'human' && m.content !== 'Hello, I see my payment failed.').length;
+  const lower_tier_available = pushbacks < 2 && (state.customerContext?.usage_percent || 100) < 60;
   const sysMsg = `You are a billing retention agent.
 Customer context: Plan ${state.customerContext?.plan_name} at ${formatDollars(state.customerContext?.plan_price_cents ?? 0)}. Usage: ${state.customerContext?.usage_percent}%.
 Active Offer ID: ${state.activeOfferId || 'None'}.
+  Lower discount tier available if customer pushes back: ${lower_tier_available}
 
 Rules:
 If usage_percent < 60, prefer partial_credit, downgrade (if a lower plan exists) or pause before plain retry.
@@ -73,7 +76,9 @@ async function validate_guardrails(state: typeof GraphState.State) {
   const lastMsg = state.messages[state.messages.length - 1].content as string;
   const escalations = detectEscalation(lastMsg);
   
-  const validated = validateProposal(state.rawProposal!, state.customerContext!, { escalationKeywords: escalations });
+  const pushbacks = state.messages.filter((m: any) => m._getType() === 'human' && m.content !== 'Hello, I see my payment failed.').length;
+  const cancelCount = state.messages.filter((m: any) => m._getType() === 'human' && /cancel|close|delete|terminate/i.test(m.content as string)).length;
+  const validated = validateProposal(state.rawProposal!, state.customerContext!, { escalationKeywords: escalations, intent: state.intent || undefined, pushbacks, cancelCount });
   
   if (state.intent === 'accept' && state.activeOfferId) {
     db.prepare(`UPDATE offers SET status = 'accepted', accepted_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'`).run(state.activeOfferId);
@@ -97,7 +102,7 @@ async function compose_message(state: typeof GraphState.State, config: any) {
   const sysMsg = `You are a billing retention agent.
 Intent: ${state.intent}. Action: ${state.decision?.action}.
 DO NOT include any links or URLs.
-You MUST explicitly state the original plan price (${formatDollars(state.customerContext?.plan_price_cents || 0)}) and the new final amount (${state.decision?.final_amount_cents ? formatDollars(state.decision.final_amount_cents) : formatDollars(state.customerContext?.plan_price_cents || 0)}) in your message.
+\n${state.decision?.action === 'pause' || state.decision?.action === 'escalate' ? '' : `You MUST explicitly state the original plan price (${formatDollars(state.customerContext?.plan_price_cents || 0)}) and the new final amount (${state.decision?.final_amount_cents ? formatDollars(state.decision.final_amount_cents) : formatDollars(state.customerContext?.plan_price_cents || 0)}) in your message.`}
 Mention the customer's usage percentage (${state.customerContext?.usage_percent}%).
 If making an offer, ask "Would you like to proceed?" and DO NOT mention a checkout button.
 If the customer accepted (intent=accept), tell them a checkout button is provided below (except for 'pause').
@@ -111,7 +116,13 @@ Compose a polite response to the customer based on the action. If escalating, te
 
   const required = state.decision?.final_amount_cents ?? null;
   const allowed = state.customerContext?.plan_price_cents ? [state.customerContext.plan_price_cents] : [];
-  const { ok, reason } = checkMessageAmounts(lastMsg, required, allowed);
+  const pushbacks = state.messages.filter((m: any) => m._getType() === 'human' && m.content !== 'Hello, I see my payment failed.').length;
+  const lower_tier_available = pushbacks < 2 && (state.customerContext?.usage_percent || 100) < 60;
+  let { ok, reason } = checkMessageAmounts(lastMsg, required, allowed);
+  if (ok && lower_tier_available && /(lowest|unable to offer|can\'t go lower|cannot go lower)/i.test(lastMsg)) {
+    ok = false;
+    reason = 'claimed lowest when lower tier exists';
+  }
 
   // LOGGING FOR USER REQUEST
   const db = getDb();
@@ -145,11 +156,11 @@ Compose a polite response to the customer based on the action. If escalating, te
       const newStr = required ? formatDollars(required) : '';
       
       if (action === 'retry') {
-        lastMsg = `Your ${planName} renewal for ${priceStr} failed. Because your usage was ${usage}%, your plan stays at ${priceStr}. No discount available. Would you like to proceed?`;
+        lastMsg = `Your ${planName} renewal of ${priceStr} didn\'t go through. Would you like to retry the payment at ${priceStr}?`;
       } else if (action === 'pause') {
         lastMsg = `Your ${planName} renewal for ${priceStr} failed. Because your usage was only ${usage}%, your subscription will be paused with no charge. Please confirm if you want to proceed.`;
       } else {
-        lastMsg = `Your ${planName} renewal for ${priceStr} failed. Because you only used ${usage}% of your limits, we can offer a new amount of ${newStr}. Would you like to proceed?`;
+        lastMsg = `I can\'t go that low. The best I can offer right now is ${newStr}. Would you like to proceed?`;
       }
     } else if (msgCount.c > 0 && !ok) {
       const priceStr = state.customerContext?.plan_price_cents ? formatDollars(state.customerContext.plan_price_cents) : '';
@@ -162,11 +173,11 @@ Compose a polite response to the customer based on the action. If escalating, te
         }
       } else {
         if (state.decision?.action === 'retry') {
-          lastMsg = `Your payment failed. Your plan stays at ${priceStr}. No discount available. Would you like to proceed?`;
+          lastMsg = `Your ${state.customerContext?.plan_name} renewal of ${priceStr} didn\'t go through. Would you like to retry the payment at ${priceStr}?`;
         } else if (state.decision?.action === 'pause') {
           lastMsg = `Your subscription will be paused with no charge. Please confirm if you want to proceed.`;
         } else {
-          lastMsg = `We can offer a new amount of ${newStr}. Would you like to proceed?`;
+          lastMsg = `I can\'t go that low. The best I can offer right now is ${newStr}. Would you like to proceed?`;
         }
       }
     }
@@ -184,6 +195,7 @@ Compose a polite response to the customer based on the action. If escalating, te
 async function persist(state: typeof GraphState.State) {
   const db = getDb();
   if (state.intent !== 'accept' && state.decision?.creates_offer) {
+     db.prepare(`UPDATE offers SET status = 'superseded' WHERE customer_id = ? AND status IN ('pending', 'accepted')`).run(state.customerId);
      const newOfferId = `off_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
      const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
      db.prepare(`

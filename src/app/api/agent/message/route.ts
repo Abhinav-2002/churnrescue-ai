@@ -30,7 +30,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
     }
     if (customer.status !== 'at_risk') {
-      return NextResponse.json({ error: 'Customer is not at_risk' }, { status: 400 });
+      return NextResponse.json({ error: 'not_at_risk' }, { status: 400 });
     }
 
     const msgCount = db.prepare(`SELECT COUNT(*) as c FROM conversations WHERE customer_id = ? AND role = 'customer'`).get(customerId) as { c: number };

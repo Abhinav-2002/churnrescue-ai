@@ -121,7 +121,7 @@ describe('End-to-End LLM Mocked Tests', () => {
     let json = await res.json();
     
     const offer = getDb().prepare('SELECT * FROM offers WHERE customer_id = ?').get('c_1') as any;
-    expect(offer.amount_cents).toBe(1250); 
+    expect(offer.amount_cents).toBe(1625); 
     expect(json.reply).toContain('$12.50'); 
   });
 
@@ -196,6 +196,6 @@ describe('End-to-End LLM Mocked Tests', () => {
     let json = await res.json();
     
     expect(json.reply).not.toContain('https://');
-    expect(json.reply).toContain('Your plan stays'); 
+    expect(json.reply).toContain('Your Starter renewal of \.00 didn\'t go through.'); 
   });
 });
