@@ -1,7 +1,7 @@
 import { AIMessage, HumanMessage } from '@langchain/core/messages';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getDb, resetDb, seedDb } from '../src/lib/db';
-import { graph } from '../src/lib/agent/graph';
+import { graph, nextLadderStep } from '../src/lib/agent/graph';
 import * as tools from '../src/lib/agent/tools';
 
 vi.mock('../src/lib/agent/tools', async (importOriginal) => {
@@ -22,9 +22,9 @@ vi.mock('../src/lib/agent/tools', async (importOriginal) => {
 let mockInvokeResponse: any = {};
 let mockComposeResponse: string = 'Mocked reply';
 
-vi.mock('@langchain/google-vertexai', () => ({
-  ChatVertexAI: class {
-    withStructuredOutput() { return this; }
+vi.mock('../src/lib/agent/llm', () => ({
+  getLlm: () => ({
+    withStructuredOutput() { return this; },
     async invoke(args: any) { 
       const sysMsg = args[0].content;
       if (sysMsg.includes('Intent:')) {
@@ -32,7 +32,7 @@ vi.mock('@langchain/google-vertexai', () => ({
       }
       return mockInvokeResponse;
     }
-  }
+  })
 }));
 
 describe('Graph Level Tests', () => {
@@ -47,6 +47,16 @@ describe('Graph Level Tests', () => {
     mockComposeResponse = 'Mocked reply';
   });
 
+  it('nextLadderStep table-driven unit tests', () => {
+    expect(nextLadderStep(null, 'negotiate')).toBe(0);
+    expect(nextLadderStep(0, 'negotiate')).toBe(1);
+    expect(nextLadderStep(1, 'negotiate')).toBe(2);
+    expect(nextLadderStep(2, 'negotiate')).toBe(2);
+    expect(nextLadderStep(0, 'neutral')).toBe(0);
+    expect(nextLadderStep(1, 'question')).toBe(1);
+    expect(nextLadderStep(2, 'accept')).toBe(2);
+  });
+
   it('runs the graph end-to-end and persists state', async () => {
     const db = getDb();
     const state = { customerId: 'c_4', billingEventId: 'evt_c_4', messages: [new HumanMessage("I want a discount")] };
@@ -56,7 +66,48 @@ describe('Graph Level Tests', () => {
     
     const offer = db.prepare('SELECT * FROM offers WHERE customer_id = ?').get('c_4') as any;
     expect(offer).toBeDefined();
-    expect(offer.amount_cents).toBe(4500); 
+    expect(offer.amount_cents).toBe(4000); 
+  });
+
+  it('ladder (question does not raise the cap; two pushbacks reach 50%; new billing event starts at 20%)', async () => {
+    const db = getDb();
+    const state0 = { customerId: 'c_4', billingEventId: 'evt_c_4', messages: [new HumanMessage("I want a discount")] };
+    
+    // Step 0: 20% discount (plan price $50 -> $40)
+    mockInvokeResponse = { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock' } };
+    mockComposeResponse = 'First offer';
+    await graph.invoke(state0, { configurable: { modelId: 'mock' } });
+    let offer = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY rowid DESC LIMIT 1').get('c_4') as any;
+    expect(offer.amount_cents).toBe(4000);
+    expect(offer.ladder_step).toBe(0);
+
+    // Question turn (intent neutral) does not raise cap or ladder step
+    mockInvokeResponse = { intent: 'neutral', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock' } };
+    const state1 = { customerId: 'c_4', billingEventId: 'evt_c_4', messages: [new HumanMessage("What does that include?")] };
+    await graph.invoke(state1, { configurable: { modelId: 'mock' } });
+    offer = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY rowid DESC LIMIT 1').get('c_4') as any;
+    expect(offer.amount_cents).toBe(4000);
+    expect(offer.ladder_step).toBe(0);
+
+    // Step 1: 35% discount (plan price $50 -> $32.50)
+    mockInvokeResponse = { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock' } };
+    const state2 = { customerId: 'c_4', billingEventId: 'evt_c_4', messages: [new HumanMessage("More discount please")] };
+    await graph.invoke(state2, { configurable: { modelId: 'mock' } });
+    offer = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY rowid DESC LIMIT 1').get('c_4') as any;
+    expect(offer.amount_cents).toBe(3250);
+    expect(offer.ladder_step).toBe(1);
+
+    // Step 2: 50% discount (plan price $50 -> $25)
+    mockInvokeResponse = { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock' } };
+    const state3 = { customerId: 'c_4', billingEventId: 'evt_c_4', messages: [new HumanMessage("Even more")] };
+    const result3 = await graph.invoke(state3, { configurable: { modelId: 'mock' } });
+    offer = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY rowid DESC LIMIT 1').get('c_4') as any;
+    expect(offer.amount_cents).toBe(2500);
+    expect(offer.ladder_step).toBe(2);
+
+    // A reply may say "that's the best I can offer" only at step 2
+    const lastMsg = result3.messages[result3.messages.length - 1].content;
+    expect(lastMsg).toContain('the best I can offer');
   });
 
   it('escalate reply: overrides LLM hallucination with the code template', async () => {

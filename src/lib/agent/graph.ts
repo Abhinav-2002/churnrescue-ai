@@ -13,41 +13,25 @@ const GraphState = Annotation.Root({
   activeOfferId: Annotation<string | null>({ reducer: (a, b) => b !== undefined ? b : a, default: () => null }),
   intent: Annotation<string | null>({ reducer: (a, b) => b !== undefined ? b : a, default: () => null }),
   rawProposal: Annotation<Proposal | null>({ reducer: (a, b) => b !== undefined ? b : a, default: () => null }),
-  decision: Annotation<ValidatedDecision | null>({ reducer: (a, b) => b !== undefined ? b : a, default: () => null })
+  decision: Annotation<ValidatedDecision | null>({ reducer: (a, b) => b !== undefined ? b : a, default: () => null }),
+  ladderStep: Annotation<number | null>({ reducer: (a, b) => b !== undefined ? b : a, default: () => null })
 });
 
-function getLlm(modelId: string) {
-  const location = process.env.GOOGLE_CLOUD_LOCATION || 'global';
-  const credentialsJson = process.env.GOOGLE_CREDENTIALS_JSON;
-  let credentials: any = undefined;
-  if (credentialsJson) {
-    try {
-      // Replace literal \n with real newlines in private_key (common pitfall with env vars)
-      const parsed = JSON.parse(credentialsJson);
-      if (parsed.private_key) {
-        parsed.private_key = parsed.private_key.replace(/\\n/g, '\n');
-      }
-      credentials = parsed;
-    } catch (e) {
-      console.error('[graph] GOOGLE_CREDENTIALS_JSON is not valid JSON – falling back to ADC');
-    }
-  }
-  return new ChatVertexAI({
-    ...(credentials ? { authOptions: { credentials } } : {}),
-    model: modelId,
-    location,
-    project: process.env.GOOGLE_CLOUD_PROJECT,
-    ...(location === 'global' ? { endpoint: 'aiplatform.googleapis.com' } : {}),
-    maxRetries: 0
-  } as any);
+import { getLlm } from './llm';
+
+export function nextLadderStep(previousStep: number | null, intent: string): number {
+  if (previousStep === null) return 0;
+  if (intent === 'negotiate') return Math.min(previousStep + 1, 2);
+  return previousStep;
 }
 
-/** Count partial_credit offers for THIS billing event only (used to step the concession ladder). */
-function countCreditOffersForEvent(customerId: string, billingEventId: string): number {
+export const LADDER_PERCENTS = [20, 35, 50];
+
+function getPreviousLadderStep(customerId: string, billingEventId: string): number | null {
   const row = getDb().prepare(
-    `SELECT count(DISTINCT amount_cents) as c FROM offers WHERE customer_id = ? AND billing_event_id = ? AND kind = 'partial_credit'`
-  ).get(customerId, billingEventId) as { c: number };
-  return row.c;
+    `SELECT ladder_step FROM offers WHERE customer_id = ? AND billing_event_id = ? AND kind = 'partial_credit' AND status != 'declined' ORDER BY rowid DESC LIMIT 1`
+  ).get(customerId, billingEventId) as { ladder_step: number } | undefined;
+  return row ? row.ladder_step : null;
 }
 
 async function load_context(state: typeof GraphState.State) {
@@ -58,7 +42,7 @@ async function load_context(state: typeof GraphState.State) {
     plan_price_cents: customer.plan_price_cents,
     usage_percent: customer.usage_percent
   };
-  const offer = db.prepare(`SELECT id FROM offers WHERE customer_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 1`).get(state.customerId) as any;
+  const offer = db.prepare(`SELECT id FROM offers WHERE customer_id = ? AND status = 'pending' ORDER BY rowid DESC LIMIT 1`).get(state.customerId) as any;
   return { customerContext: context, activeOfferId: offer ? offer.id : null };
 }
 
@@ -75,8 +59,8 @@ async function decide(state: typeof GraphState.State, config: any) {
     { name: 'decision' }
   );
 
-  // Ladder: count credit offers for this billing event (not total messages)
-  const pushbacks = countCreditOffersForEvent(state.customerId, state.billingEventId);
+  const previousLadder = getPreviousLadderStep(state.customerId, state.billingEventId);
+  const pushbacks = previousLadder || 0;
   const lower_tier_available = pushbacks < 2 && (state.customerContext?.usage_percent || 100) < 60;
 
   const sysMsg = `You are a billing retention agent.
@@ -101,10 +85,8 @@ async function validate_guardrails(state: typeof GraphState.State) {
   const lastMsg = state.messages[state.messages.length - 1].content as string;
   const escalations = detectEscalation(lastMsg);
 
-  // Only advance ladder if the model returned 'negotiate' intent (not neutral/question/accept/decline)
-  const pushbacks = (state.intent === 'negotiate')
-    ? countCreditOffersForEvent(state.customerId, state.billingEventId)
-    : 0;
+  const previousLadder = getPreviousLadderStep(state.customerId, state.billingEventId);
+  const ladderStep = nextLadderStep(previousLadder, state.intent || 'neutral');
 
   const cancelCount = state.messages.filter(
     (m: any) => m._getType() === 'human' && /cancel|close|delete|terminate/i.test(m.content as string)
@@ -113,7 +95,7 @@ async function validate_guardrails(state: typeof GraphState.State) {
   const validated = validateProposal(
     state.rawProposal!,
     state.customerContext!,
-    { escalationKeywords: escalations, intent: state.intent || undefined, pushbacks, cancelCount }
+    { escalationKeywords: escalations, intent: state.intent || undefined, pushbacks: ladderStep, cancelCount }
   );
 
   if (state.intent === 'accept' && state.activeOfferId) {
@@ -126,7 +108,7 @@ async function validate_guardrails(state: typeof GraphState.State) {
     db.prepare(`UPDATE offers SET status = 'declined' WHERE id = ? AND status = 'pending'`).run(state.activeOfferId);
   }
 
-  return { decision: validated };
+  return { decision: validated, ladderStep };
 }
 
 async function compose_message(state: typeof GraphState.State, config: any) {
@@ -156,10 +138,7 @@ Compose a polite response to the customer based on the action. If escalating, te
   const required = state.decision?.final_amount_cents ?? null;
   const allowed = state.customerContext?.plan_price_cents ? [state.customerContext.plan_price_cents] : [];
 
-  // Ladder step: only advance when intent === 'negotiate'
-  const pushbacks = (state.intent === 'negotiate')
-    ? countCreditOffersForEvent(state.customerId, state.billingEventId)
-    : 0;
+  const pushbacks = state.ladderStep ?? 0;
   const lower_tier_available = pushbacks < 2 && usage < 60;
 
   let { ok, reason } = checkMessageAmounts(lastMsg, required, allowed);
@@ -174,7 +153,7 @@ Compose a polite response to the customer based on the action. If escalating, te
   const isFirst = msgCountRow.c === 0;
 
   // What was the last agent message? (for de-duplication)
-  const lastAgentRow = db.prepare(`SELECT text FROM conversations WHERE customer_id = ? AND role = 'agent' ORDER BY created_at DESC LIMIT 1`).get(state.customerId) as any;
+  const lastAgentRow = db.prepare(`SELECT text FROM conversations WHERE customer_id = ? AND role = 'agent' ORDER BY rowid DESC LIMIT 1`).get(state.customerId) as any;
   const lastAgentText = lastAgentRow?.text ?? null;
 
   const templateUsed = { used: false, reason: '' };
@@ -256,18 +235,27 @@ Compose a polite response to the customer based on the action. If escalating, te
 
 async function persist(state: typeof GraphState.State) {
   const db = getDb();
-  if (state.intent !== 'accept' && state.decision?.creates_offer) {
+  if (state.intent === 'escalate' || state.decision?.action === 'escalate') {
     db.prepare(`UPDATE offers SET status = 'superseded' WHERE customer_id = ? AND status IN ('pending', 'accepted')`).run(state.customerId);
-    const newOfferId = `off_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-    db.prepare(`
-      INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, discount_percent, target_plan, expires_at, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      newOfferId, state.customerId, state.billingEventId, state.decision.action,
-      state.decision.final_amount_cents, state.decision.discount_percent,
-      state.decision.target_plan, expiresAt, 'pending'
-    );
+  } else if (state.intent !== 'accept' && state.decision?.creates_offer) {
+    const existing = db.prepare(`SELECT * FROM offers WHERE customer_id = ? AND status IN ('pending', 'accepted') ORDER BY rowid DESC LIMIT 1`).get(state.customerId) as any;
+    if (existing && existing.kind === state.decision.action && existing.amount_cents === state.decision.final_amount_cents) {
+      // Reuse current offer when kind and amount are unchanged
+      state.activeOfferId = existing.id;
+    } else {
+      db.prepare(`UPDATE offers SET status = 'superseded' WHERE customer_id = ? AND status IN ('pending', 'accepted')`).run(state.customerId);
+      const newOfferId = `off_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+      db.prepare(`
+        INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, discount_percent, target_plan, expires_at, status, ladder_step)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        newOfferId, state.customerId, state.billingEventId, state.decision.action,
+        state.decision.final_amount_cents, state.decision.discount_percent,
+        state.decision.target_plan, expiresAt, 'pending', state.ladderStep || 0
+      );
+      state.activeOfferId = newOfferId;
+    }
   }
 
   const lastMsg = state.messages[state.messages.length - 1].content as string;

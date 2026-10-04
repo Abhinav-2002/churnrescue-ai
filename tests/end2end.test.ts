@@ -15,9 +15,9 @@ vi.mock('@paypal/agent-toolkit/langchain', () => ({
   }
 }));
 
-vi.mock('@langchain/google-vertexai', () => ({
-  ChatVertexAI: class {
-    bindTools() { return this; }
+vi.mock('../src/lib/agent/llm', () => ({
+  getLlm: () => ({
+    bindTools() { return this; },
     withStructuredOutput() {
       return {
         invoke: async (messages: any[]) => {
@@ -41,7 +41,7 @@ if (text.includes('make it $20')) { return { intent: 'negotiate', proposal: { ac
           return { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock' } };
         }
       };
-    }
+    },
     async invoke(messages: any[]) {
       const text = messages.map(m => m.content).join(' ').toLowerCase();
       if (text.includes('give me the paypal link')) {
@@ -49,7 +49,7 @@ if (text.includes('make it $20')) { return { intent: 'negotiate', proposal: { ac
       }
       return new AIMessage('Your subscription will be paused with no charge. Please confirm if you want to proceed.');
     }
-  }
+  })
 }));
 
 function mockRequest(body: any, ip: string = '127.0.0.1') {

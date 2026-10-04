@@ -102,20 +102,9 @@ export function validateProposal(
         clamps.push(`partial_credit not allowed at usage ${ctx.usage_percent}% -> retry`);
         return retry(ctx, clamps);
       }
-      let raw = proposal?.discount_percent ?? 20;
-      let pct = Math.round(raw);
-      
-      const pushbacks = opts.pushbacks || 0;
-      let maxAllowed = 20;
-      if (pushbacks === 1) maxAllowed = 35;
-      else if (pushbacks >= 2) maxAllowed = 50;
-
-      if (pct > maxAllowed) {
-        clamps.push(`discount_percent ${pct} clamped to ${maxAllowed} due to ladder`);
-        pct = maxAllowed;
-      }
-      
-      if (pct < 1) return retry(ctx, clamps);
+      const step = opts.pushbacks || 0;
+      const LADDER_PERCENTS = [20, 35, 50];
+      const pct = LADDER_PERCENTS[step] ?? 50;
       
       let final = Math.round((ctx.plan_price_cents * (100 - pct)) / 100);
       if (final < MIN_CHARGE_CENTS) {

@@ -116,7 +116,8 @@ export const MIGRATIONS = [
   { name: 'discount_percent', ddl: 'discount_percent INTEGER NULL CHECK(discount_percent IS NULL OR (discount_percent >= 0 AND discount_percent <= 50))' },
   { name: 'target_plan', ddl: 'target_plan TEXT NULL' },
   { name: 'accepted_at', ddl: 'accepted_at TEXT NULL' },
-  { name: 'capturing_at', ddl: 'capturing_at TEXT NULL' }
+  { name: 'capturing_at', ddl: 'capturing_at TEXT NULL' },
+  { name: 'ladder_step', ddl: 'ladder_step INTEGER NOT NULL DEFAULT 0 CHECK(ladder_step BETWEEN 0 AND 2)' }
 ];
 
 export function migrateOffers(db: Database.Database) {

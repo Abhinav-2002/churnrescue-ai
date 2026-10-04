@@ -6,10 +6,22 @@ import { POST as CapturePost } from '../src/app/api/offers/[offerId]/capture/rou
 import { POST as ResetPost } from '../src/app/api/reset/route';
 import { POST as SimulatePost } from '../src/app/api/simulate-failure/route';
 import { isDemoMode } from '../src/lib/demo';
-vi.mock('@paypal/checkout-server-sdk', () => ({
-  core: { PayPalHttpClient: class {}, SandboxEnvironment: class {}, LiveEnvironment: class {} },
-  orders: { OrdersGetRequest: class {}, OrdersCaptureRequest: class {} }
-}));
+vi.mock('../src/lib/paypal', async (importOriginal) => {
+  const actual = await importOriginal<any>();
+  return {
+    ...actual,
+    paypalClient: {},
+    captureOrder: vi.fn().mockImplementation(async (orderId: string, options?: any) => {
+      if (options?.forceDecline) {
+        return { status: 422, body: { details: [{ issue: 'INSTRUMENT_DECLINED' }] } };
+      }
+      return { status: 201, body: { status: 'COMPLETED' } };
+    }),
+    getOrder: vi.fn().mockResolvedValue({ status: 'APPROVED', id: 'mock_order_id' }),
+    createOrder: vi.fn().mockResolvedValue({ id: 'mock_order_123', status: 'created' }),
+    verifyWebhookSignature: vi.fn().mockResolvedValue(true)
+  };
+});
 vi.mock('../src/lib/agent/llm', () => ({
   getLlm: () => ({
     withStructuredOutput: () => ({
@@ -30,6 +42,7 @@ function mockReq(url: string, ip: string = '127.0.0.1', body?: any) {
 }
 
 describe('Stage 5.7 Hardening', () => {
+  let fetchSpy: any;
   beforeEach(() => {
     getDb();
     seedDb();
@@ -37,9 +50,11 @@ describe('Stage 5.7 Hardening', () => {
     process.env.DEMO_MODE = '1';
     process.env.DAILY_LLM_CALL_LIMIT = '500';
     vi.restoreAllMocks();
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response());
   });
 
   afterEach(() => {
+    expect(fetchSpy).not.toHaveBeenCalled();
     vi.restoreAllMocks();
   });
 

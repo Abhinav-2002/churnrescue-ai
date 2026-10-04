@@ -6,15 +6,15 @@ import { AIMessage } from '@langchain/core/messages';
 let mockText = "I hallucinated and forgot the numbers!";
 let mockStructuredOutput = { intent: 'propose', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock' } };
 
-vi.mock('@langchain/google-vertexai', () => ({
-  ChatVertexAI: class {
+vi.mock('../src/lib/agent/llm', () => ({
+  getLlm: () => ({
     withStructuredOutput() { 
       return { invoke: async () => mockStructuredOutput }; 
-    }
+    },
     async invoke() { 
       return new AIMessage(mockText); 
     }
-  }
+  })
 }));
 
 describe('Start Endpoint', () => {
