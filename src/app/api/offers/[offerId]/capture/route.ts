@@ -26,6 +26,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ offerId
       return NextResponse.json({ error: 'Customer is not at_risk' }, { status: 400 });
     }
 
+    if (offer.status === 'superseded') {
+      return NextResponse.json({ error: 'offer_superseded' }, { status: 400 });
+    }
+
     if (!offer.paypal_order_id) {
       return NextResponse.json({ error: 'No paypal order associated with offer' }, { status: 400 });
     }

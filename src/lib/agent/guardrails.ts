@@ -2,26 +2,17 @@ import { z } from 'zod';
 import { findPlan, nextLowerPlan } from '../plans';
 import { extractDollarAmounts, formatDollars } from '../money';
 
-/**
- * Guardrails: "The LLM proposes. The code decides."
- * Everything here is deterministic code. The model never supplies a final amount in cents.
- */
-
 export const ACTIONS = ['retry', 'partial_credit', 'downgrade', 'pause', 'escalate'] as const;
 export type AgentAction = (typeof ACTIONS)[number];
 
-export const PARTIAL_CREDIT_MAX_USAGE_EXCLUSIVE = 60; // usage 59 qualifies, 60 does not
+export const PARTIAL_CREDIT_MAX_USAGE_EXCLUSIVE = 60;
 export const MAX_DISCOUNT_PERCENT = 50;
 export const MIN_CHARGE_CENTS = 100;
 export const OFFER_TTL_MS = 30 * 60 * 1000;
 
-/** What the model is allowed to propose. Note: no amount field at all. */
 export const proposalSchema = z.object({
   action: z.enum(ACTIONS).describe('The recovery action to propose'),
-  discount_percent: z
-    .number()
-    .optional()
-    .describe('Only for partial_credit: percentage off the current plan price (whole number)'),
+  discount_percent: z.number().optional().describe('Only for partial_credit: percentage off the current plan price (whole number)'),
   target_plan: z.string().optional().describe('Only for downgrade: name of a cheaper plan'),
   message_tone_notes: z.string().optional().describe('Short notes on tone for the customer message'),
   reasoning: z.string().describe('One or two sentences explaining the choice'),
@@ -36,11 +27,9 @@ export interface CustomerContext {
 
 export interface ValidatedDecision {
   action: AgentAction;
-  /** null when no offer is created (escalate). 0 for pause. */
   final_amount_cents: number | null;
   discount_percent: number | null;
   target_plan: string | null;
-  /** true when an offer row should be created */
   creates_offer: boolean;
   clamps: string[];
 }
@@ -54,7 +43,6 @@ const ESCALATION_PATTERNS: { label: string; re: RegExp }[] = [
   { label: 'anger', re: /\b(furious|angry|outraged|livid|pissed|disgusted|unacceptable)\b/i },
 ];
 
-/** Code-level escalation check, applied in addition to the model's judgment. */
 export function detectEscalation(texts: string | string[]): string[] {
   const all = (Array.isArray(texts) ? texts : [texts]).join('\n');
   return ESCALATION_PATTERNS.filter((p) => p.re.test(all)).map((p) => p.label);
@@ -63,7 +51,7 @@ export function detectEscalation(texts: string | string[]): string[] {
 export function validateProposal(
   proposal: Partial<Proposal> | null | undefined,
   ctx: CustomerContext,
-  opts: { escalationKeywords?: string[] } = {},
+  opts: { escalationKeywords?: string[], intent?: string, pushbacks?: number, cancelCount?: number } = {},
 ): ValidatedDecision {
   const clamps: string[] = [];
   const keywords = opts.escalationKeywords ?? [];
@@ -73,7 +61,30 @@ export function validateProposal(
     return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps };
   }
 
-  const action = proposal?.action;
+  let action = proposal?.action;
+  
+  if (opts.intent === 'cancel') {
+    if (ctx.usage_percent < 60) {
+      action = 'pause';
+      clamps.push('cancel intent < 60 usage -> pause');
+    } else {
+      if ((opts.cancelCount || 0) > 1) {
+        return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps: ['cancel intent >= 60 usage twice -> escalate'] };
+      } else {
+        action = 'retry';
+        clamps.push('cancel intent >= 60 usage -> retry with pause option');
+      }
+    }
+  } else if (opts.intent === 'decline') {
+    if (ctx.usage_percent < 60) {
+      action = 'pause';
+      clamps.push('decline intent < 60 usage -> pause');
+    } else {
+      action = 'retry';
+      clamps.push('decline intent >= 60 usage -> polite retry');
+    }
+  }
+
   if (!action || !ACTIONS.includes(action)) {
     clamps.push(`invalid action ${JSON.stringify(action)} -> retry`);
     return retry(ctx, clamps);
@@ -82,52 +93,31 @@ export function validateProposal(
   switch (action) {
     case 'escalate':
       return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps };
-
     case 'retry':
       return retry(ctx, clamps);
-
     case 'pause':
       return { action: 'pause', final_amount_cents: 0, discount_percent: null, target_plan: null, creates_offer: true, clamps };
-
     case 'partial_credit': {
       if (!(ctx.usage_percent < PARTIAL_CREDIT_MAX_USAGE_EXCLUSIVE)) {
-        clamps.push(`partial_credit not allowed at usage ${ctx.usage_percent}% (must be < ${PARTIAL_CREDIT_MAX_USAGE_EXCLUSIVE}) -> retry`);
+        clamps.push(`partial_credit not allowed at usage ${ctx.usage_percent}% -> retry`);
         return retry(ctx, clamps);
       }
-      const raw = proposal?.discount_percent;
-      if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) {
-        clamps.push(`invalid discount_percent ${JSON.stringify(raw)} -> retry`);
-        return retry(ctx, clamps);
-      }
-      let pct = Math.round(raw);
-      if (pct !== raw) clamps.push(`discount_percent ${raw} rounded to ${pct}`);
-      if (pct > MAX_DISCOUNT_PERCENT) {
-        clamps.push(`discount_percent ${pct} clamped to ${MAX_DISCOUNT_PERCENT}`);
-        pct = MAX_DISCOUNT_PERCENT;
-      }
-      if (pct < 1) {
-        clamps.push(`discount_percent rounded to 0 -> retry`);
-        return retry(ctx, clamps);
-      }
-      // Integer math: price * (100 - pct) / 100, rounded to whole cents.
+      const step = opts.pushbacks || 0;
+      const LADDER_PERCENTS = [20, 35, 50];
+      const pct = LADDER_PERCENTS[step] ?? 50;
+      
       let final = Math.round((ctx.plan_price_cents * (100 - pct)) / 100);
       if (final < MIN_CHARGE_CENTS) {
-        clamps.push(`final ${final} raised to floor ${MIN_CHARGE_CENTS}`);
         final = MIN_CHARGE_CENTS;
       }
       return { action: 'partial_credit', final_amount_cents: final, discount_percent: pct, target_plan: null, creates_offer: true, clamps };
     }
-
     case 'downgrade': {
       const requested = findPlan(proposal?.target_plan);
       let target = requested && requested.priceCents < ctx.plan_price_cents ? requested : undefined;
       if (!target) {
         const lower = nextLowerPlan(ctx.plan_price_cents);
-        if (!lower) {
-          clamps.push(`no plan cheaper than ${ctx.plan_name} -> retry`);
-          return retry(ctx, clamps);
-        }
-        clamps.push(`target_plan ${JSON.stringify(proposal?.target_plan ?? null)} invalid or not cheaper -> ${lower.name}`);
+        if (!lower) return retry(ctx, clamps);
         target = lower;
       }
       return {
@@ -153,10 +143,6 @@ function retry(ctx: CustomerContext, clamps: string[]): ValidatedDecision {
   };
 }
 
-/**
- * Message check: when an offer has an amount, the message must contain it, and every dollar figure in
- * the message must be one the code approved (the offer amount or the customer's current plan price).
- */
 export function checkMessageAmounts(
   message: string,
   requiredCents: number | null,

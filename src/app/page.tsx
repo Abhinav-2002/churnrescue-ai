@@ -152,7 +152,7 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setSystemMsg({ kind: 'error', text: data.error || 'Failed to send' });
+        const errorMap: Record<string, string> = { not_at_risk: 'Your account is currently active.', invalid_request: 'There was a problem with your request.', no_failed_billing_event: 'No failed payment found.', internal_error: 'Something went wrong on our end.', offer_superseded: 'This offer is no longer valid.', get_order_failed: 'Failed to verify payment.', expired: 'This offer has expired.' }; setSystemMsg({ kind: 'error', text: errorMap[data.error] || 'Failed to send' });
       } else if (data.busy) {
         // Budget exhausted: no DB writes occurred. Append the busy reply locally.
         setMessages(prev => [...prev, { role: 'agent', text: data.reply }]);
@@ -190,7 +190,7 @@ export default function Home() {
              clearInterval(interval);
              if (sData.customer.status === 'recovered') {
                setSystemMsg({ kind: 'success', text: 'Your payment was successful!' });
-               setNextStep('none');
+               loadState(selectedCustomer.id);
                loadCustomers(); // refresh list
              } else {
                setSystemMsg({ kind: 'error', text: 'Payment state resolved without success.' });
@@ -207,7 +207,7 @@ export default function Home() {
 
     setSystemMsg({ kind: result.kind, text: result.message });
     if (result.kind === 'success') {
-      setNextStep('none');
+      loadState(selectedCustomer.id);
       loadCustomers();
     }
   }
@@ -222,7 +222,7 @@ export default function Home() {
       });
       if (res.ok) {
         setSystemMsg({ kind: 'success', text: 'Your subscription is paused.' });
-        setNextStep('none');
+        loadState(selectedCustomer.id);
         loadCustomers();
       } else {
         setSystemMsg({ kind: 'error', text: 'Failed to pause subscription.' });

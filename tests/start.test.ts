@@ -6,15 +6,15 @@ import { AIMessage } from '@langchain/core/messages';
 let mockText = "I hallucinated and forgot the numbers!";
 let mockStructuredOutput = { intent: 'propose', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock' } };
 
-vi.mock('@langchain/google-vertexai', () => ({
-  ChatVertexAI: class {
+vi.mock('../src/lib/agent/llm', () => ({
+  getLlm: () => ({
     withStructuredOutput() { 
       return { invoke: async () => mockStructuredOutput }; 
-    }
+    },
     async invoke() { 
       return new AIMessage(mockText); 
     }
-  }
+  })
 }));
 
 describe('Start Endpoint', () => {
@@ -46,6 +46,7 @@ describe('Start Endpoint', () => {
     expect(customerMsgs.length).toBe(0);
 
     const agentMsgs = msgs.filter(m => m.role === 'agent');
+    // First message: usage 45% < 60, so must be a credit offer
     expect(agentMsgs[0].text).toContain('Pro');
     expect(agentMsgs[0].text).toContain('$50.00');
     expect(agentMsgs[0].text).toContain('45%');
