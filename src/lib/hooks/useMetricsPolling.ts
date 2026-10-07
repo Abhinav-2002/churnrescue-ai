@@ -1,26 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import type { MetricsV2Response } from '@/lib/types/metrics';
 
-export interface DashboardData {
-  customers: any[];
-  offers: any[];
-  recoveries: any[];
-  decisions: any[];
-  daily_series: { date: string; failed_amount_cents: number; recovered_amount_cents: number }[];
-  funnel: { failed: number; offered: number; accepted: number; paid: number };
-  kpis: {
-    total_failed: number;
-    total_recovered: number;
-    recovery_rate: number;
-    at_risk: number;
-    paused: number;
-    escalated: number;
-    average_discount: number;
-    median_hours_to_recovery: number;
-  };
-}
+export type DashboardData = MetricsV2Response;
 
-export function useMetricsPolling(url: string = '/api/dashboard/metrics', intervalMs: number = 3000) {
-  const [data, setData] = useState<DashboardData | null>(null);
+export function useMetricsPolling(
+  url: string = '/api/dashboard/metrics',
+  intervalMs: number = 3000,
+  enabled: boolean = true
+) {
+  const [data, setData] = useState<MetricsV2Response | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -32,9 +20,25 @@ export function useMetricsPolling(url: string = '/api/dashboard/metrics', interv
   const isVisibleRef = useRef<boolean>(true);
 
   const [retryCount, setRetryCount] = useState(0);
+  const prevUrlRef = useRef(url);
+
+  useEffect(() => {
+    if (prevUrlRef.current !== url) {
+      prevUrlRef.current = url;
+      etagRef.current = null;
+    }
+  }, [url]);
 
   useEffect(() => {
     let active = true;
+
+    if (!enabled) {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+      return () => {
+        active = false;
+      };
+    }
 
     const doFetch = async () => {
       if (!active) return;
@@ -101,7 +105,7 @@ export function useMetricsPolling(url: string = '/api/dashboard/metrics', interv
       if (timerRef.current) clearTimeout(timerRef.current);
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
-  }, [url, intervalMs, retryCount]);
+  }, [url, intervalMs, retryCount, enabled]);
 
   const retry = useCallback(() => {
     setLoading(true);

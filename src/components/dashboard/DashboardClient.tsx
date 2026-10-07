@@ -1,376 +1,512 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useMetricsPolling } from '@/lib/hooks/useMetricsPolling';
 import { formatCents } from '@/lib/format';
+import {
+  Card,
+  Badge,
+  Button,
+  Toggle,
+  Skeleton,
+  ErrorState,
+} from '@/components/ui';
+import { KpiCards } from './KpiCards';
+import { PerformanceChart } from './PerformanceChart';
 import { DonutChart } from './DonutChart';
 import { FunnelChart } from './FunnelChart';
-import { LineChart } from './LineChart';
+import { GuardrailsPanel } from './GuardrailsPanel';
+import { HumanQueuePanel } from './HumanQueuePanel';
+import { CustomersTable } from './CustomersTable';
+import { CustomerDrawer } from './CustomerDrawer';
 
-// Lightweight local icons (avoiding dependencies)
-const IconTrendingUp = () => <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2" fill="none"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>;
-const IconWarning = () => <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2" fill="none"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>;
-const IconRefresh = () => <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2" fill="none"><polyline points="1 4 1 10 7 10"></polyline><polyline points="23 20 23 14 17 14"></polyline><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path></svg>;
+const THEME_CHANGE_EVENT = 'churnrescue-theme-change';
+const themeListeners = new Set<() => void>();
+
+function notifyThemeListeners() {
+  themeListeners.forEach((listener) => {
+    try {
+      listener();
+    } catch {}
+  });
+}
+
+function subscribeTheme(callback: () => void) {
+  themeListeners.add(callback);
+  const onStorage = () => callback();
+  window.addEventListener('storage', onStorage);
+  window.addEventListener(THEME_CHANGE_EVENT, onStorage);
+  const mql = window.matchMedia('(prefers-color-scheme: dark)');
+  mql.addEventListener('change', onStorage);
+  return () => {
+    themeListeners.delete(callback);
+    window.removeEventListener('storage', onStorage);
+    window.removeEventListener(THEME_CHANGE_EVENT, onStorage);
+    mql.removeEventListener('change', onStorage);
+  };
+}
+
+let inMemoryThemeOverride: 'light' | 'dark' | null = null;
+
+export function resetThemeForTests() {
+  inMemoryThemeOverride = null;
+}
+
+function getThemeSnapshot(): 'light' | 'dark' {
+  if (inMemoryThemeOverride) return inMemoryThemeOverride;
+  try {
+    const saved = localStorage.getItem('theme');
+    if (saved === 'dark' || saved === 'light') return saved;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  } catch {
+    return 'light';
+  }
+}
+
+function getServerThemeSnapshot(): 'light' | 'dark' {
+  return 'light';
+}
 
 export function DashboardClient() {
-  const { data, error, loading, lastUpdated, retry } = useMetricsPolling();
-  const [theme, setTheme] = useState<'light'|'dark'>('light'); // Assuming system sync is handled in a global ThemeProvider, but we implement a toggle
-  
+  const [isLive, setIsLive] = useState(true);
+  const theme = React.useSyncExternalStore(subscribeTheme, getThemeSnapshot, getServerThemeSnapshot);
+  const [secondsAgo, setSecondsAgo] = useState(0);
+
+  // Synchronize document.documentElement class with current theme
+  useEffect(() => {
+    try {
+      if (theme === 'dark') {
+        document.documentElement.classList.add('dark');
+        document.documentElement.classList.remove('light');
+      } else {
+        document.documentElement.classList.add('light');
+        document.documentElement.classList.remove('dark');
+      }
+    } catch {
+      // Fallback gracefully
+    }
+  }, [theme]);
+
+  const toggleTheme = () => {
+    const nextTheme = theme === 'light' ? 'dark' : 'light';
+    inMemoryThemeOverride = nextTheme;
+    try {
+      if (nextTheme === 'dark') {
+        document.documentElement.classList.add('dark');
+        document.documentElement.classList.remove('light');
+      } else {
+        document.documentElement.classList.add('light');
+        document.documentElement.classList.remove('dark');
+      }
+      localStorage.setItem('theme', nextTheme);
+      document.cookie = `theme=${nextTheme}; path=/; max-age=31536000; SameSite=Lax`;
+    } catch {
+      // Fallback gracefully - inMemoryThemeOverride preserves session choice
+    }
+    notifyThemeListeners();
+    try {
+      window.dispatchEvent(new CustomEvent(THEME_CHANGE_EVENT));
+    } catch {}
+  };
+
+
+  const [rangeDays, setRangeDays] = useState<7 | 14 | 30>(7);
   const [filterAction, setFilterAction] = useState<string | null>(null);
   const [filterStage, setFilterStage] = useState<string | null>(null);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const triggerRef = React.useRef<HTMLElement | null>(null);
 
-  const toggleTheme = () => {
-    const newTheme = theme === 'light' ? 'dark' : 'light';
-    setTheme(newTheme);
-    try {
-      if (newTheme === 'dark') document.documentElement.classList.add('dark');
-      else document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', newTheme);
-    } catch(e) {}
+  const metricsUrl = useMemo(() => `/api/dashboard/metrics?days=${rangeDays}`, [rangeDays]);
+
+  // Polling with v2 API
+  const { data, error, loading, lastUpdated, retry } = useMetricsPolling(
+    metricsUrl,
+    3000,
+    isLive
+  );
+
+  // Reactive "Updated Ns ago" ticker
+  useEffect(() => {
+    const tick = () => {
+      if (!lastUpdated) return;
+      const diff = Math.floor((Date.now() - lastUpdated.getTime()) / 1000);
+      setSecondsAgo(Math.max(0, diff));
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [lastUpdated]);
+
+  const isStale = Boolean(isLive && lastUpdated && secondsAgo > 15);
+
+  const formattedTime = useMemo(() => {
+    if (!lastUpdated) return '--:--:-- UTC';
+    return lastUpdated.toISOString().substring(11, 19) + ' UTC';
+  }, [lastUpdated]);
+
+  const updatedText = useMemo(() => {
+    if (!lastUpdated) return 'Connecting...';
+    if (!isLive) return 'Polling paused';
+    if (secondsAgo < 5) return 'Updated just now';
+    return `Updated ${secondsAgo}s ago`;
+  }, [lastUpdated, isLive, secondsAgo]);
+
+  const handleOpenDrawer = (customerId: string, elRef?: React.RefObject<HTMLElement | null>) => {
+    setSelectedCustomerId(customerId);
+    if (elRef?.current) {
+      triggerRef.current = elRef.current;
+    } else if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      triggerRef.current = document.activeElement;
+    }
   };
 
-  React.useEffect(() => {
-    try {
-      let currentTheme = 'light';
-      if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-        currentTheme = 'dark';
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-      setTimeout(() => setTheme(currentTheme as 'light'|'dark'), 0);
-    } catch(e) {}
-  }, []);
-
-  if (error) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 text-gray-800 dark:bg-gray-900 dark:text-gray-100 p-4">
-        <IconWarning />
-        <h2 className="mt-4 text-xl font-medium">Connection Lost</h2>
-        <p className="mt-2 text-gray-500 text-center max-w-md">We lost connection to the metrics server. The dashboard will automatically retry in the background.</p>
-        <button onClick={retry} className="mt-6 px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">Try Now</button>
-      </div>
-    );
-  }
-
-  if (loading && !data) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900" aria-label="Loading dashboard...">
-        <div className="animate-spin text-blue-600"><IconRefresh /></div>
-      </div>
-    );
-  }
-
-  if (!data) return null;
-
-  // Derived metrics
-  const mixData = [
-    { label: 'Card Swap / Retry', value: data.decisions.filter(d => d.action === 'retry').length, color: '#10b981' }, // emerald
-    { label: 'Discount Applied', value: data.decisions.filter(d => d.action === 'partial_credit').length, color: '#3b82f6' }, // blue
-    { label: 'Pause Account', value: data.decisions.filter(d => d.action === 'pause').length, color: '#eab308' }, // yellow
-    { label: 'Human Escalation', value: data.decisions.filter(d => d.action === 'escalate').length, color: '#ef4444' } // red
-  ].sort((a,b) => b.value - a.value);
-
-  const funnelData = [
-    { id: 'failed', label: 'Failed Payments', value: data.funnel.failed, color: '#ef4444' },
-    { id: 'offered', label: 'Offered Intervention', value: data.funnel.offered, color: '#3b82f6' },
-    { id: 'accepted', label: 'Accepted Offer', value: data.funnel.accepted, color: '#eab308' },
-    { id: 'paid', label: 'Payment Successful', value: data.funnel.paid, color: '#10b981' },
-  ];
-
-  const rulesMap = {
-    'escalated_by_keyword': 'Forced escalation',
-    'retry_forced': 'Invalid attempt blocked',
-    'ladder_limited': 'Discount capped',
-    'template_used': 'Template enforced'
+  const handleCloseDrawer = () => {
+    setSelectedCustomerId(null);
   };
 
-  const guardrailsCounts = data.decisions.reduce((acc, d) => {
-    if (d.guardrail_category) {
-      acc[d.guardrail_category] = (acc[d.guardrail_category] || 0) + 1;
-      acc.total = (acc.total || 0) + 1;
-    }
-    return acc;
-  }, {} as any);
+  const selectedCustomer = useMemo(() => {
+    if (!selectedCustomerId || !data?.customers) return null;
+    return data.customers.find((c) => c.id === selectedCustomerId) ?? null;
+  }, [data, selectedCustomerId]);
 
-  const latestClamped = data.decisions.find(d => d.guardrail_category === 'ladder_limited' && d.proposed_discount_percent && d.approved_discount_percent);
-  
-  const humansNeeded = data.customers.filter(c => c.last_action === 'escalate' || c.status === 'at_risk');
-
-  const filteredCustomers = data.customers.filter(c => {
-    if (filterAction) {
-      if (filterAction === 'Card Swap / Retry' && c.last_action !== 'retry') return false;
-      if (filterAction === 'Discount Applied' && c.last_action !== 'partial_credit') return false;
-      if (filterAction === 'Pause Account' && c.last_action !== 'pause') return false;
-      if (filterAction === 'Human Escalation' && c.last_action !== 'escalate') return false;
-    }
-    if (filterStage) {
-      if (filterStage === 'failed' && c.status !== 'failed' && c.status !== 'at_risk') return false;
-      if (filterStage === 'paid' && c.status !== 'recovered') return false;
-      if (filterStage === 'accepted' && c.status !== 'recovered' && c.status !== 'paused') return false;
-      // "offered" stage is broader, skip strict mapping for demo simplicity or use last_action existence
-      if (filterStage === 'offered' && !c.last_action) return false;
-    }
-    return true;
-  });
+  const needsHumanCount = data?.range_totals?.current?.needs_human ?? 0;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] text-gray-800 dark:text-gray-200 font-sans transition-colors">
-      {/* Header */}
-      <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0a0a0a]/80 backdrop-blur border-b border-gray-200 dark:border-gray-800 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <h1 className="text-xl font-bold tracking-tight">ChurnRescue AI</h1>
-          <span className="px-2.5 py-0.5 bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 rounded-full text-xs font-semibold">Sandbox Demo</span>
-        </div>
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2 text-xs text-gray-500">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>Live • {lastUpdated ? lastUpdated.toLocaleTimeString() : 'Polling...'}</span>
+    <div className="min-h-screen bg-slate-50 dark:bg-black text-slate-900 dark:text-slate-100 flex flex-col xl:flex-row antialiased">
+      {/* 1. Desktop Sidebar (>= 1280px) */}
+      <aside
+        aria-label="Sidebar navigation"
+        className="hidden xl:flex xl:w-64 xl:flex-col fixed inset-y-0 z-40 bg-white dark:bg-gray-950 border-r border-slate-200 dark:border-slate-800"
+      >
+        <div className="flex flex-col flex-1 p-6 justify-between">
+          <div className="space-y-6">
+            {/* Brand */}
+            <div>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-base shadow-sm">
+                  CR
+                </div>
+                <div>
+                  <h1 className="text-base font-bold tracking-tight text-slate-900 dark:text-white leading-tight">
+                    ChurnRescue AI
+                  </h1>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Billing Operations
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <Badge variant="sandbox" className="w-full justify-center text-center">
+                  Sandbox demo, no real money
+                </Badge>
+              </div>
+            </div>
+
+            {/* Navigation Links — Strictly adhering to Contract A9 Anchors */}
+            <nav className="space-y-1">
+              <a
+                href="#overview"
+                className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300"
+              >
+                <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                </svg>
+                <span>Overview</span>
+              </a>
+
+              <a
+                href="#customers"
+                className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-900 transition-colors"
+              >
+                <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+                <span>Customers</span>
+              </a>
+
+              <a
+                href="#human-queue"
+                className="flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-900 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <svg className="w-4 h-4 shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <span>Needs a Human</span>
+                </div>
+                {needsHumanCount > 0 && (
+                  <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                    {needsHumanCount}
+                  </span>
+                )}
+              </a>
+
+              <a
+                href="#guardrails"
+                className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-900 transition-colors"
+              >
+                <svg className="w-4 h-4 shrink-0 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+                <span>Guardrails</span>
+              </a>
+            </nav>
           </div>
-          <button onClick={toggleTheme} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500" aria-label="Toggle theme">
-            {theme === 'light' ? '🌙' : '☀️'}
+
+          {/* Sidebar Footer info */}
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
+              <span>Environment</span>
+              <span className="font-mono text-emerald-600 dark:text-emerald-400">Sandbox</span>
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
+              <span>Model</span>
+              <span className="font-mono">Gemini 2.5</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* 2. Sticky Top Bar (< 1280px) */}
+      <header
+        aria-label="Mobile header"
+        className="xl:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-white/95 dark:bg-gray-950/95 backdrop-blur border-b border-slate-200 dark:border-slate-800"
+      >
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center text-white font-bold text-xs">
+            CR
+          </div>
+          <span className="font-bold text-sm tracking-tight text-slate-900 dark:text-white">
+            ChurnRescue AI
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Badge variant="sandbox" className="text-[10px] px-2 py-0.5 hidden sm:inline-flex">
+            Sandbox
+          </Badge>
+
+          <Link
+            href="/"
+            className="text-xs font-medium px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            Chat Demo
+          </Link>
+
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
+            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+          >
+            {theme === 'light' ? (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            )}
           </button>
-          <Link href="/" className="text-sm font-medium bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">Chat Demo ↗</Link>
         </div>
       </header>
 
-      <main className="max-w-[1920px] mx-auto p-4 md:p-6 lg:p-8 space-y-6">
-        
-        {/* KPI Row */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-5 shadow-sm">
-            <div className="text-sm text-gray-500 dark:text-gray-400 mb-1 flex items-center gap-2">Recovered Revenue</div>
-            <div className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums">{formatCents(data.kpis.total_recovered)}</div>
-          </div>
-          <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-5 shadow-sm">
-            <div className="text-sm text-gray-500 dark:text-gray-400 mb-1 flex items-center gap-2">Recovery Rate</div>
-            <div className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums">{(data.kpis.recovery_rate * 100).toFixed(0)}%</div>
-          </div>
-          <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-5 shadow-sm">
-            <div className="text-sm text-gray-500 dark:text-gray-400 mb-1 flex items-center gap-2">Failed Payments</div>
-            <div className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums">{formatCents(data.kpis.total_failed)}</div>
-          </div>
-          <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-5 shadow-sm">
-            <div className="text-sm text-gray-500 dark:text-gray-400 mb-1 flex items-center gap-2">Customers Recovered</div>
-            <div className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums">{data.funnel.paid}</div>
-          </div>
-          <div className="bg-white dark:bg-gray-900 border border-orange-100 dark:border-orange-900/30 rounded-xl p-5 shadow-sm bg-orange-50/50 dark:bg-orange-900/10">
-            <div className="text-sm text-orange-600 dark:text-orange-400 mb-1 flex items-center gap-2">
-              <IconWarning /> Needs Human
-            </div>
-            <div className="text-3xl font-bold text-orange-700 dark:text-orange-300 tabular-nums">{data.kpis.escalated}</div>
-          </div>
-        </div>
-
-        {/* Charts Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-8 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-6 shadow-sm">
-            <h2 className="text-lg font-bold mb-1">Failed vs Recovered Revenue</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Daily aggregated amounts</p>
-            <LineChart data={data.daily_series} />
-          </div>
-          
-          <div className="lg:col-span-4 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-6 shadow-sm">
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <h2 className="text-lg font-bold mb-1">Intervention Mix</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Distribution of strategies</p>
+      {/* 3. Main Content Container */}
+      <main className="flex-1 xl:pl-64 min-w-0 flex flex-col overflow-x-hidden">
+        <div className="max-w-[1440px] w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+          {/* Header row: Product Title, Badges, Live Status, Controls */}
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-6 border-b border-slate-200 dark:border-slate-800">
+            <div>
+              <div className="flex flex-wrap items-center gap-3">
+                <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+                  Billing Operations
+                </h2>
+                <Badge variant="sandbox" className="hidden lg:inline-flex">
+                  Sandbox demo, no real money
+                </Badge>
               </div>
-              {filterAction && (
-                <button onClick={() => setFilterAction(null)} className="text-xs text-blue-600 hover:underline">Clear Filter</button>
-              )}
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Autonomous recovery agent telemetry and guardrail compliance
+              </p>
             </div>
-            <DonutChart data={mixData} onSliceClick={setFilterAction} />
-          </div>
-        </div>
 
-        {/* Lower Row */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-4 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-6 shadow-sm">
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <h2 className="text-lg font-bold mb-1">Recovery Funnel</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Pipeline conversion</p>
+            {/* Live Indicator, Poll Controls, Theme Toggle, Link */}
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+              {/* Live Status indicator */}
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white dark:bg-gray-900 border border-slate-200 dark:border-slate-800 text-xs">
+                {isStale ? (
+                  <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+                  </span>
+                ) : isLive ? (
+                  <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                  </span>
+                ) : (
+                  <span className="inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" aria-hidden="true" />
+                )}
+                <span className="font-semibold text-slate-700 dark:text-slate-300">
+                  {isStale ? 'STALE' : isLive ? 'LIVE' : 'PAUSED'}
+                </span>
+                <span className="text-slate-400 dark:text-slate-600">|</span>
+                <span className="font-mono tabular-nums text-slate-600 dark:text-slate-400">
+                  {formattedTime}
+                </span>
+                <span className="text-slate-400 dark:text-slate-600 hidden sm:inline">|</span>
+                <span className="tabular-nums text-slate-500 dark:text-slate-400 hidden sm:inline">
+                  {updatedText}
+                </span>
               </div>
-              {filterStage && (
-                <button onClick={() => setFilterStage(null)} className="text-xs text-blue-600 hover:underline">Clear Filter</button>
-              )}
-            </div>
-            <FunnelChart data={funnelData} onStageClick={setFilterStage} />
-          </div>
-          
-          <div className="lg:col-span-4 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-6 shadow-sm flex flex-col">
-            <h2 className="text-lg font-bold mb-1 flex items-center gap-2"><IconWarning /> Guardrails at Work</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">LLM constrained by deterministic rules</p>
-            
-            <div className="flex-1 space-y-4">
-              <div className="flex justify-between items-center pb-3 border-b border-gray-100 dark:border-gray-800">
-                <span className="text-sm font-medium">Total intercepts</span>
-                <span className="font-bold">{guardrailsCounts.total || 0}</span>
-              </div>
-              {Object.entries(rulesMap).map(([key, label]) => {
-                const count = guardrailsCounts[key] || 0;
-                if (!count) return null;
-                return (
-                  <div key={key} className="flex justify-between text-sm">
-                    <span className="text-gray-600 dark:text-gray-400">{label}</span>
-                    <span className="font-medium">{count}</span>
-                  </div>
-                );
-              })}
-            </div>
-            
-            <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg text-sm text-gray-600 dark:text-gray-300 italic border border-gray-100 dark:border-gray-700">
-              {guardrailsCounts.total || 0} proposals adjusted by code before reaching customers.
-              {latestClamped && (
-                <div className="mt-2 font-medium text-blue-700 dark:text-blue-400 not-italic">
-                  Latest: Model proposed {latestClamped.proposed_discount_percent}%, code allowed {latestClamped.approved_discount_percent}%.
-                </div>
-              )}
-            </div>
-          </div>
-          
-          <div className="lg:col-span-4 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-6 shadow-sm overflow-hidden flex flex-col">
-            <h2 className="text-lg font-bold mb-1 text-orange-600 dark:text-orange-400">Needs a Human Queue <span className="bg-orange-100 text-orange-800 text-xs px-2 py-0.5 rounded-full ml-2">{humansNeeded.length}</span></h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Escalated customers</p>
-            
-            <div className="overflow-y-auto flex-1 pr-2 space-y-3">
-              {humansNeeded.length === 0 ? (
-                <div className="text-center text-gray-400 py-8 text-sm">Queue is empty</div>
-              ) : humansNeeded.map(c => (
-                <div key={c.id} className="flex items-center justify-between p-3 border border-gray-100 dark:border-gray-800 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                  <div>
-                    <div className="font-medium text-sm">{c.name}</div>
-                    <div className="text-xs text-gray-500 mt-1">{c.plan} • {c.status}</div>
-                  </div>
-                  <button onClick={() => setSelectedCustomerId(c.id)} className="text-xs font-medium text-blue-600 hover:underline">Review</button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
 
-        {/* Table */}
-        <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl p-6 shadow-sm overflow-x-auto">
-          <div className="flex justify-between items-center mb-6 min-w-[800px]">
-            <h2 className="text-lg font-bold">Customers</h2>
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-gray-500">Filter:</span>
-              <select 
-                value={filterAction || ''} 
-                onChange={(e) => setFilterAction(e.target.value || null)}
-                className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              {/* Live Toggle */}
+              <Toggle
+                size="sm"
+                checked={isLive}
+                onChange={setIsLive}
+                label={isLive ? 'Polling ON' : 'Paused'}
+                aria-label="Toggle live metrics polling"
+              />
+
+              {/* Theme Toggle Button (Always interactive & visible) */}
+              <button
+                type="button"
+                onClick={toggleTheme}
+                aria-label={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
+                className="inline-flex items-center justify-center p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors cursor-pointer"
               >
-                <option value="">All Interventions</option>
-                <option value="Card Swap / Retry">Card Swap / Retry</option>
-                <option value="Discount Applied">Discount Applied</option>
-                <option value="Pause Account">Pause Account</option>
-                <option value="Human Escalation">Human Escalation</option>
-              </select>
+                {theme === 'light' ? (
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                  </svg>
+                )}
+              </button>
+
+              {/* Link to Chat Demo */}
+              <Link
+                href="/"
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-900 transition-colors"
+              >
+                <span>Chat Demo</span>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </Link>
             </div>
           </div>
 
-          <table className="w-full text-left text-sm min-w-[800px]">
-            <thead className="text-gray-500 dark:text-gray-400 font-medium border-b border-gray-100 dark:border-gray-800">
-              <tr>
-                <th className="pb-3 font-medium">Status</th>
-                <th className="pb-3 font-medium">Usage</th>
-                <th className="pb-3 font-medium">Customer</th>
-                <th className="pb-3 font-medium">Plan</th>
-                <th className="pb-3 font-medium">Last Action</th>
-                <th className="pb-3 font-medium text-right">Amounts</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-              {filteredCustomers.length === 0 ? (
-                <tr><td colSpan={6} className="py-8 text-center text-gray-400">No customers found</td></tr>
-              ) : filteredCustomers.map(c => (
-                <tr key={c.id} onClick={() => setSelectedCustomerId(c.id)} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer">
-                  <td className="py-4">
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
-                      c.status === 'recovered' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' :
-                      c.status === 'failed' || c.status === 'at_risk' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
-                      'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
-                    }`}>
-                      <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
-                      {c.status.replace('_', ' ').toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="py-4">
-                    <div className="flex items-center gap-2">
-                      <span className="w-8 tabular-nums">{c.usage_percent}%</span>
-                      <div className="w-16 h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
-                        <div className={`h-full ${c.usage_percent > 80 ? 'bg-emerald-500' : c.usage_percent > 40 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{width: `${c.usage_percent}%`}}></div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="py-4 font-medium text-gray-900 dark:text-white">{c.name}</td>
-                  <td className="py-4 text-gray-600 dark:text-gray-400">{c.plan}</td>
-                  <td className="py-4">
-                    <span className="text-gray-900 dark:text-gray-100">{c.last_action ? c.last_action.replace('_', ' ') : 'None'}</span>
-                    <div className="text-xs text-gray-500">{c.last_action_at ? new Date(c.last_action_at).toLocaleString() : ''}</div>
-                  </td>
-                  <td className="py-4 text-right">
-                    <div className="tabular-nums text-gray-900 dark:text-white">{formatCents(c.price_cents)}</div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+          {/* Stale Connection Warning Banner */}
+          {isStale && !error && (
+            <div
+              role="alert"
+              aria-live="polite"
+              className="p-3 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 text-xs flex items-center justify-between"
+            >
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                <span>Telemetry connection stale — last data received {secondsAgo}s ago. Reconnecting...</span>
+              </div>
+              <button
+                type="button"
+                onClick={retry}
+                className="px-2.5 py-1 rounded bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-100 font-semibold hover:bg-amber-300 dark:hover:bg-amber-800 cursor-pointer transition-colors"
+              >
+                Retry Now
+              </button>
+            </div>
+          )}
+
+          {/* Error Banner if API error */}
+          {error && (
+            <ErrorState
+              title="Connection Error"
+              message={`Failed to fetch live metrics: ${error.message}. Polling will automatically retry.`}
+              onRetry={retry}
+            />
+          )}
+
+          {/* 4. Responsive KPI Row Grid (5 Cards) */}
+          <KpiCards
+            rangeTotals={data?.range_totals}
+            sparklines={data?.sparklines}
+            days={rangeDays}
+            loading={loading && !data}
+          />
+
+          {/* 5. Performance Chart & Intervention Mix Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
+              <PerformanceChart
+                data={data?.daily_series}
+                rangeDays={rangeDays}
+                onRangeChange={setRangeDays}
+                loading={loading && !data}
+              />
+            </div>
+            <div>
+              <DonutChart
+                mix={data?.intervention_mix}
+                activeFilter={filterAction}
+                onSelectAction={setFilterAction}
+                loading={loading && !data}
+              />
+            </div>
+          </div>
+
+          {/* 6. Funnel & Guardrails Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <FunnelChart
+              funnel={data?.funnel}
+              activeStage={filterStage}
+              onSelectStage={setFilterStage}
+              loading={loading && !data}
+            />
+            <GuardrailsPanel
+              summary={data?.guardrail_summary}
+              audit={data?.policy_audit}
+              loading={loading && !data}
+            />
+          </div>
+
+          {/* 7. Needs a Human Queue */}
+          <HumanQueuePanel
+            queue={data?.human_queue}
+            onOpenDrawer={(id) => handleOpenDrawer(id)}
+            loading={loading && !data}
+          />
+
+          {/* 8. Customer Accounts Table (25 per page) */}
+          <CustomersTable
+            customers={data?.customers}
+            filterAction={filterAction}
+            filterStage={filterStage}
+            onClearActionFilter={() => setFilterAction(null)}
+            onClearStageFilter={() => setFilterStage(null)}
+            onOpenDrawer={(id, ref) => handleOpenDrawer(id, ref)}
+            loading={loading && !data}
+          />
+
+          {/* 9. Customer Slide-Over Drawer */}
+          <CustomerDrawer
+            isOpen={Boolean(selectedCustomerId)}
+            customerId={selectedCustomerId}
+            customer={selectedCustomer}
+            decisions={data?.decisions}
+            offers={data?.offers}
+            onClose={handleCloseDrawer}
+            triggerRef={triggerRef}
+          />
         </div>
       </main>
-
-      {/* Drawer */}
-      {selectedCustomerId && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-black/20 dark:bg-black/40 backdrop-blur-sm" onClick={() => setSelectedCustomerId(null)}></div>
-          <div className="relative w-full max-w-md bg-white dark:bg-gray-900 h-full shadow-2xl flex flex-col transform transition-transform border-l border-gray-200 dark:border-gray-800 animate-slide-in-right">
-            <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
-              <div>
-                <h3 className="text-lg font-bold">Decision Timeline</h3>
-                <p className="text-sm text-gray-500">{data.customers.find(c => c.id === selectedCustomerId)?.name}</p>
-              </div>
-              <button onClick={() => setSelectedCustomerId(null)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full text-gray-500 text-xl font-medium leading-none">&times;</button>
-            </div>
-            <div className="p-6 overflow-y-auto flex-1">
-              <div className="space-y-6 relative before:absolute before:inset-0 before:ml-2 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-200 dark:before:via-slate-700 before:to-transparent">
-                {data.decisions.filter(d => d.customer_id === selectedCustomerId).length === 0 ? (
-                  <div className="text-center text-gray-500 py-8 relative z-10 bg-white dark:bg-gray-900">No decisions recorded yet.</div>
-                ) : (
-                  data.decisions.filter(d => d.customer_id === selectedCustomerId)
-                    .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-                    .map((d, i) => (
-                      <div key={i} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                        <div className="flex items-center justify-center w-5 h-5 rounded-full border-4 border-white dark:border-gray-900 bg-blue-500 text-slate-500 shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 absolute left-0 md:left-1/2 -translate-x-1/2 z-10"></div>
-                        <div className="w-[calc(100%-2.5rem)] md:w-[calc(50%-2.5rem)] ml-10 md:ml-0 p-4 rounded border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 shadow-sm">
-                          <div className="flex justify-between mb-1">
-                            <span className="font-bold text-gray-900 dark:text-gray-100 text-sm">{d.action.replace('_', ' ').toUpperCase()}</span>
-                            <span className="text-xs text-gray-500">{new Date(d.created_at).toLocaleTimeString()}</span>
-                          </div>
-                          <div className="text-sm text-gray-600 dark:text-gray-300">
-                            {d.action === 'partial_credit' && d.proposed_discount_percent && (
-                              <span>Offered {d.proposed_discount_percent}% discount.</span>
-                            )}
-                            {d.guardrail_category && (
-                              <div className="mt-2 text-xs text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 p-2 rounded">
-                                Guardrail applied: {rulesMap[d.guardrail_category as keyof typeof rulesMap] || d.guardrail_category}
-                                {d.guardrail_category === 'ladder_limited' && d.approved_discount_percent !== null && (
-                                  <span className="block mt-1">Capped to {d.approved_discount_percent}%.</span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

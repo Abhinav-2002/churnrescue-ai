@@ -323,7 +323,12 @@ export default function Home() {
                   systemMsg.kind === 'error' || systemMsg.kind === 'declined' || systemMsg.kind === 'expired' ? 'bg-red-100 text-red-800' :
                   'bg-blue-100 text-blue-800'
                 }`}>
-                  {systemMsg.text}
+                  <div>{systemMsg.text}</div>
+                  {systemMsg.kind === 'success' && (
+                    <div className="mt-2 text-xs">
+                      <a href="/dashboard" className="font-semibold underline hover:text-green-900">View Dashboard &rarr;</a>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -429,6 +434,9 @@ export default function Home() {
         
         <div className="mt-8 text-center text-sm text-gray-500 pb-8">
           Demo uses one-time PayPal Orders for the recovery payment. A production subscription fix would use the Subscriptions API.
+          <div className="mt-2">
+            <a href="/dashboard" className="text-blue-600 hover:underline">View Dashboard</a>
+          </div>
         </div>
       </div>
     </div>
