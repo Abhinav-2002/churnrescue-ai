@@ -104,8 +104,11 @@ async function validate_guardrails(state: typeof GraphState.State) {
   if (state.intent === 'accept' && state.activeOfferId) {
     db.prepare(`UPDATE offers SET status = 'accepted', accepted_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'`).run(state.activeOfferId);
     const offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(state.activeOfferId) as any;
-    if (offer && offer.amount_cents > 0 && !offer.paypal_order_id) {
-      await createOrderInternal(offer.id);
+    if (offer) {
+      validated.action = offer.kind;
+      if (offer.amount_cents > 0 && !offer.paypal_order_id) {
+        await createOrderInternal(offer.id);
+      }
     }
   } else if (state.intent === 'decline' && state.activeOfferId) {
     db.prepare(`UPDATE offers SET status = 'declined' WHERE id = ? AND status = 'pending'`).run(state.activeOfferId);

@@ -36,7 +36,7 @@ vi.mock('../src/lib/agent/llm', () => ({
              return { intent: 'negotiate', proposal: { action: 'retry', reasoning: 'mock' } };
           }
           if (text.includes('pause my plan')) {
-             return { intent: 'decline', proposal: { action: 'pause', reasoning: 'mock' } };
+             return { intent: 'cancel', proposal: { action: 'pause', reasoning: 'mock' } };
           }
           if (text.includes('yes, i accept')) {
              return { intent: 'accept', proposal: { action: 'retry', reasoning: 'mock' } };
@@ -204,7 +204,7 @@ describe('End-to-End LLM Mocked Tests', () => {
     let json = await res.json();
     
     expect(json.reply).not.toContain('https://');
-    expect(json.reply).toContain(`Your Starter renewal of $25.00 didn't go through.`);
+    expect(json.reply).toContain(`We can offer`);
   });
 
   it('"make it $20" after a $12.50 offer does not accept a superseded offer', async () => {

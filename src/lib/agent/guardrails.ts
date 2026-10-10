@@ -82,6 +82,8 @@ export function validateProposal(
     }
   } else if (opts.intent === 'escalate') {
     action = 'escalate';
+  } else if (opts.intent === 'downgrade') {
+    action = 'downgrade';
   } else {
     action = 'retry';
   }

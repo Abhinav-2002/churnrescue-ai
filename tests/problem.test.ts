@@ -8,15 +8,15 @@ import { resetRateLimitsForTests } from '../src/lib/rate-limit';
 let llmCall = 0;
 const mockStructuredOutputs = [
   { intent: 'propose', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock' } },
-  { intent: 'propose', proposal: { action: 'partial_credit', discount_percent: 20, reasoning: 'mock' } },
   { intent: 'negotiate', proposal: { action: 'partial_credit', discount_percent: 35, reasoning: 'mock' } },
+  { intent: 'negotiate', proposal: { action: 'retry', reasoning: 'mock' } },
   { intent: 'negotiate', proposal: { action: 'retry', reasoning: 'mock' } }
 ];
 
 const mockTexts = [
   "Your Starter renewal of $25.00 didn't go through. I can offer you $20.00.",
-  "Your Starter renewal of $25.00 didn't go through. I can offer you $20.00.",
   "I can improve that to $16.25.",
+  "the lowest possible rate I can offer ... is $25.00 ... we can retry the transaction at this rate.",
   "the lowest possible rate I can offer ... is $25.00 ... we can retry the transaction at this rate."
 ];
 
