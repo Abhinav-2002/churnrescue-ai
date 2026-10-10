@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 import { ChatProvider } from '../src/components/ChatContext';
 import { DashboardClient, resetThemeForTests } from '../src/components/dashboard/DashboardClient';
 
@@ -48,6 +48,7 @@ describe('Theme Toggle Behavioral Verification', () => {
   });
 
   afterEach(() => {
+    cleanup();
     window.matchMedia = originalMatchMedia;
     document.documentElement.className = '';
     localStorage.clear();

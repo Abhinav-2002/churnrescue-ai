@@ -8,7 +8,6 @@ export default defineConfig({
     },
   },
   test: {
-    pool: 'forks',
-    isolate: false,
+    pool: 'threads',
   },
 });
