@@ -152,11 +152,11 @@ Compose a polite response to the customer based on the action. If escalating, te
 
   const db = getDb();
   // Is this the very first message in the conversation?
-  const msgCountRow = db.prepare('SELECT COUNT(*) as c FROM conversations WHERE customer_id = ?').get(state.customerId) as { c: number };
+  const msgCountRow = db.prepare(`SELECT COUNT(*) as c FROM conversations WHERE customer_id = ? AND text != '[SYSTEM_CLAIM]'`).get(state.customerId) as { c: number };
   const isFirst = msgCountRow.c === 0;
 
   // What was the last agent message? (for de-duplication)
-  const lastAgentRow = db.prepare(`SELECT text FROM conversations WHERE customer_id = ? AND role = 'agent' ORDER BY rowid DESC LIMIT 1`).get(state.customerId) as any;
+  const lastAgentRow = db.prepare(`SELECT text FROM conversations WHERE customer_id = ? AND role = 'agent' AND text != '[SYSTEM_CLAIM]' ORDER BY rowid DESC LIMIT 1`).get(state.customerId) as any;
   const lastAgentText = lastAgentRow?.text ?? null;
 
   const templateUsed = { used: false, reason: '' };
