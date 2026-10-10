@@ -37,7 +37,7 @@ describe('Defect 4: Double Accept Concurrency', () => {
     vi.clearAllMocks();
   });
 
-  it('allows concurrent accepts to create multiple PayPal orders', async () => {
+  it('deduplicates concurrent accepts and creates exactly one PayPal order', async () => {
     const db = getDb();
     
     db.prepare(`UPDATE customers SET status = 'at_risk' WHERE id = 'c_1'`).run();
