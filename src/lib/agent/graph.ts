@@ -29,9 +29,9 @@ export const LADDER_PERCENTS = [20, 35, 50];
 
 function getPreviousLadderStep(customerId: string, billingEventId: string): number | null {
   const row = getDb().prepare(
-    `SELECT ladder_step FROM offers WHERE customer_id = ? AND billing_event_id = ? AND kind = 'partial_credit' AND status != 'declined' ORDER BY rowid DESC LIMIT 1`
-  ).get(customerId, billingEventId) as { ladder_step: number } | undefined;
-  return row ? row.ladder_step : null;
+    `SELECT MAX(ladder_step) as ladder_step FROM offers WHERE customer_id = ? AND billing_event_id = ? AND kind = 'partial_credit'`
+  ).get(customerId, billingEventId) as { ladder_step: number | null } | undefined;
+  return row && row.ladder_step !== null ? row.ladder_step : null;
 }
 
 async function load_context(state: typeof GraphState.State) {
@@ -92,10 +92,13 @@ async function validate_guardrails(state: typeof GraphState.State) {
     (m: any) => m._getType() === 'human' && /cancel|close|delete|terminate/i.test(m.content as string)
   ).length;
 
+  const previousOffer = db.prepare(`SELECT amount_cents FROM offers WHERE customer_id = ? AND billing_event_id = ? ORDER BY rowid DESC LIMIT 1`).get(state.customerId, state.billingEventId) as any;
+  const previousAmountCents = previousOffer ? previousOffer.amount_cents : undefined;
+
   const validated = validateProposal(
     state.rawProposal!,
     state.customerContext!,
-    { escalationKeywords: escalations, intent: state.intent || undefined, pushbacks: ladderStep, cancelCount }
+    { escalationKeywords: escalations, intent: state.intent || undefined, pushbacks: ladderStep, cancelCount, previousAmountCents }
   );
 
   if (state.intent === 'accept' && state.activeOfferId) {

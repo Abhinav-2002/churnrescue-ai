@@ -11,9 +11,6 @@ export const MIN_CHARGE_CENTS = 100;
 export const OFFER_TTL_MS = 30 * 60 * 1000;
 
 export const proposalSchema = z.object({
-  action: z.enum(ACTIONS).describe('The recovery action to propose'),
-  discount_percent: z.number().optional().describe('Only for partial_credit: percentage off the current plan price (whole number)'),
-  target_plan: z.string().optional().describe('Only for downgrade: name of a cheaper plan'),
   message_tone_notes: z.string().optional().describe('Short notes on tone for the customer message'),
   reasoning: z.string().describe('One or two sentences explaining the choice'),
 });
@@ -51,7 +48,7 @@ export function detectEscalation(texts: string | string[]): string[] {
 export function validateProposal(
   proposal: Partial<Proposal> | null | undefined,
   ctx: CustomerContext,
-  opts: { escalationKeywords?: string[], intent?: string, pushbacks?: number, cancelCount?: number } = {},
+  opts: { escalationKeywords?: string[], intent?: string, pushbacks?: number, cancelCount?: number, previousAmountCents?: number } = {},
 ): ValidatedDecision {
   const clamps: string[] = [];
   const keywords = opts.escalationKeywords ?? [];
@@ -61,7 +58,7 @@ export function validateProposal(
     return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps };
   }
 
-  let action = proposal?.action;
+  let action: AgentAction | undefined;
   
   if (opts.intent === 'cancel') {
     if (ctx.usage_percent < 60) {
@@ -75,18 +72,22 @@ export function validateProposal(
         clamps.push('cancel intent >= 60 usage -> retry with pause option');
       }
     }
-  } else if (opts.intent === 'decline') {
+  } else if (opts.intent === 'decline' || opts.intent === 'negotiate' || opts.intent === 'neutral' || opts.intent === 'propose') {
     if (ctx.usage_percent < 60) {
-      action = 'pause';
-      clamps.push('decline intent < 60 usage -> pause');
+      action = 'partial_credit';
+      clamps.push(`${opts.intent} intent < 60 usage -> partial_credit`);
     } else {
       action = 'retry';
-      clamps.push('decline intent >= 60 usage -> polite retry');
+      clamps.push(`${opts.intent} intent >= 60 usage -> retry`);
     }
+  } else if (opts.intent === 'escalate') {
+    action = 'escalate';
+  } else {
+    action = 'retry';
   }
 
-  if (!action || !ACTIONS.includes(action)) {
-    clamps.push(`invalid action ${JSON.stringify(action)} -> retry`);
+  if (!action || !ACTIONS.includes(action as AgentAction)) {
+    clamps.push(`invalid action -> retry`);
     return retry(ctx, clamps);
   }
 
@@ -109,6 +110,9 @@ export function validateProposal(
       let final = Math.round((ctx.plan_price_cents * (100 - pct)) / 100);
       if (final < MIN_CHARGE_CENTS) {
         final = MIN_CHARGE_CENTS;
+      }
+      if (opts.previousAmountCents !== undefined) {
+        final = Math.min(final, opts.previousAmountCents);
       }
       return { action: 'partial_credit', final_amount_cents: final, discount_percent: pct, target_plan: null, creates_offer: true, clamps };
     }
