@@ -68,7 +68,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ offerId
       capturedAmountStr = paypalOrder.purchase_units[0].payments.captures[0].amount.value;
     } else if (paypalOrder.status === 'APPROVED') {
       if (new Date(offer.expires_at).getTime() < Date.now()) {
-        db.prepare(`UPDATE offers SET status = 'accepted', capturing_at = NULL WHERE id = ?`).run(offer.id);
+        db.prepare(`UPDATE offers SET status = 'superseded', capturing_at = NULL WHERE id = ?`).run(offer.id);
+        const expOfferId = `off_${Date.now()}_${Math.random().toString(36).substring(2,7)}`;
+        db.prepare(`INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, discount_percent, ladder_step, target_plan, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`).run(expOfferId, offer.customer_id, offer.billing_event_id, offer.kind, offer.amount_cents, offer.discount_percent, offer.ladder_step, offer.target_plan);
         return NextResponse.json({ error: 'expired' }, { status: 400 });
       }
 
@@ -100,6 +102,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ offerId
                capturedAmountStr = recheckOrder.purchase_units[0].payments.captures[0].amount.value;
              } else {
                db.prepare(`UPDATE offers SET status = 'failed', paypal_order_status = 'declined' WHERE id = ?`).run(offer.id);
+               const newOfferId = `off_${Date.now()}_${Math.random().toString(36).substring(2,7)}`;
+               db.prepare(`INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, discount_percent, ladder_step, target_plan, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`).run(newOfferId, offer.customer_id, offer.billing_event_id, offer.kind, offer.amount_cents, offer.discount_percent, offer.ladder_step, offer.target_plan);
                return NextResponse.json({ error: 'declined' }, { status: 400 });
              }
            } catch(e) {
@@ -109,6 +113,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ offerId
         } else {
           console.error('PayPal Capture Declined:', captureResult.body);
           db.prepare(`UPDATE offers SET status = 'failed', paypal_order_status = 'declined' WHERE id = ?`).run(offer.id);
+          const newOfferId = `off_${Date.now()}_${Math.random().toString(36).substring(2,7)}`;
+          db.prepare(`INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, discount_percent, ladder_step, target_plan, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`).run(newOfferId, offer.customer_id, offer.billing_event_id, offer.kind, offer.amount_cents, offer.discount_percent, offer.ladder_step, offer.target_plan);
           return NextResponse.json({ error: 'declined' }, { status: 400 }); 
         }
       } else {

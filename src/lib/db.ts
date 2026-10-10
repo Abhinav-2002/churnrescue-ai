@@ -111,7 +111,7 @@ function initDb() {
 
 export const MIGRATIONS = [
   { name: 'paypal_order_id', ddl: 'paypal_order_id TEXT NULL' },
-  { name: 'paypal_order_status', ddl: "paypal_order_status TEXT NULL CHECK(paypal_order_status IS NULL OR paypal_order_status IN ('created', 'payer_action_required', 'approved', 'captured', 'declined', 'completed', 'failed'))" },
+  { name: 'paypal_order_status', ddl: "paypal_order_status TEXT NULL CHECK(paypal_order_status IS NULL OR paypal_order_status IN ('creating', 'created', 'payer_action_required', 'approved', 'captured', 'declined', 'completed', 'failed'))" },
   { name: 'paypal_approve_url', ddl: 'paypal_approve_url TEXT NULL' },
   { name: 'discount_percent', ddl: 'discount_percent INTEGER NULL CHECK(discount_percent IS NULL OR (discount_percent >= 0 AND discount_percent <= 50))' },
   { name: 'target_plan', ddl: 'target_plan TEXT NULL' },

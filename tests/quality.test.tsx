@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { render, screen, act, cleanup } from '@testing-library/react';
+import { ChatProvider } from '../src/components/ChatContext';
 import { expect, test, vi, describe, afterEach, beforeEach } from 'vitest';
 import { DashboardClient } from '../src/components/dashboard/DashboardClient';
 import React from 'react';
@@ -56,9 +57,9 @@ describe('Checkpoint E Quality Gates', () => {
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     render(
-      <>
+      <ChatProvider>
         <DashboardClient />
-      </>
+      </ChatProvider>
     );
 
     await act(async () => {
@@ -71,9 +72,9 @@ describe('Checkpoint E Quality Gates', () => {
 
   test('Keyboard-only operation and tab order', async () => {
     const { container } = render(
-      <>
+      <ChatProvider>
         <DashboardClient />
-      </>
+      </ChatProvider>
     );
 
     await act(async () => {
@@ -91,9 +92,9 @@ describe('Checkpoint E Quality Gates', () => {
 
   test('Reduced-motion behaviour test', async () => {
     render(
-      <>
+      <ChatProvider>
         <DashboardClient />
-      </>
+      </ChatProvider>
     );
 
     await act(async () => {
@@ -110,9 +111,9 @@ describe('Checkpoint E Quality Gates', () => {
     const initialTimerCount = vi.getTimerCount();
     
     const { unmount } = render(
-      <>
+      <ChatProvider>
         <DashboardClient />
-      </>
+      </ChatProvider>
     );
 
     await act(async () => {

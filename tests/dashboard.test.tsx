@@ -2,6 +2,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { ChatProvider } from '../src/components/ChatContext';
 import { KpiCards } from '../src/components/dashboard/KpiCards';
 import { PerformanceChart } from '../src/components/dashboard/PerformanceChart';
 import { DonutChart } from '../src/components/dashboard/DonutChart';
@@ -853,7 +854,7 @@ describe('Checkpoint D — Dashboard Panels Component Tests', () => {
     });
 
     it('renders dashboard shell with sidebar anchors, theme toggle, and live status', () => {
-      render(<DashboardClient />);
+      render(<ChatProvider><DashboardClient /></ChatProvider>);
 
       expect(screen.getByRole('heading', { name: 'Billing Operations' })).toBeTruthy();
       expect(screen.getByRole('link', { name: /overview/i })).toBeTruthy();

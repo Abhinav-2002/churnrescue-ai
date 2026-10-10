@@ -2,6 +2,7 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
+import { ChatProvider } from '../src/components/ChatContext';
 import { DashboardClient, resetThemeForTests } from '../src/components/dashboard/DashboardClient';
 
 describe('Theme Toggle Behavioral Verification', () => {
@@ -55,7 +56,7 @@ describe('Theme Toggle Behavioral Verification', () => {
 
   it('1. system preference is used when no persisted preference exists (system dark)', () => {
     prefersDark = true;
-    render(<DashboardClient />);
+    render(<ChatProvider><DashboardClient /></ChatProvider>);
 
     expect(document.documentElement.classList.contains('dark')).toBe(true);
     expect(document.documentElement.classList.contains('light')).toBe(false);
@@ -67,7 +68,7 @@ describe('Theme Toggle Behavioral Verification', () => {
 
   it('2. system preference is used when no persisted preference exists (system light)', () => {
     prefersDark = false;
-    render(<DashboardClient />);
+    render(<ChatProvider><DashboardClient /></ChatProvider>);
 
     expect(document.documentElement.classList.contains('light')).toBe(true);
     expect(document.documentElement.classList.contains('dark')).toBe(false);
@@ -79,7 +80,7 @@ describe('Theme Toggle Behavioral Verification', () => {
 
   it('3. theme toggle changes from dark to light upon user click', () => {
     prefersDark = true;
-    render(<DashboardClient />);
+    render(<ChatProvider><DashboardClient /></ChatProvider>);
 
     expect(document.documentElement.classList.contains('dark')).toBe(true);
     const toggleButton = screen.getAllByRole('button', { name: /switch to light theme/i })[0];
@@ -99,7 +100,7 @@ describe('Theme Toggle Behavioral Verification', () => {
 
   it('4. theme toggle changes from light to dark upon user click', () => {
     prefersDark = false;
-    render(<DashboardClient />);
+    render(<ChatProvider><DashboardClient /></ChatProvider>);
 
     expect(document.documentElement.classList.contains('light')).toBe(true);
     const toggleButton = screen.getAllByRole('button', { name: /switch to dark theme/i })[0];
@@ -119,7 +120,7 @@ describe('Theme Toggle Behavioral Verification', () => {
 
   it('5. aria state accurately reflects the current theme across multiple toggles', () => {
     prefersDark = false;
-    render(<DashboardClient />);
+    render(<ChatProvider><DashboardClient /></ChatProvider>);
 
     // Initial light
     expect(screen.getAllByRole('button', { name: /switch to dark theme/i }).length).toBeGreaterThan(0);
@@ -141,7 +142,7 @@ describe('Theme Toggle Behavioral Verification', () => {
 
   it('6. persisted theme is restored from localStorage', () => {
     localStorage.setItem('theme', 'dark');
-    render(<DashboardClient />);
+    render(<ChatProvider><DashboardClient /></ChatProvider>);
 
     expect(document.documentElement.classList.contains('dark')).toBe(true);
     expect(document.documentElement.classList.contains('light')).toBe(false);
@@ -156,7 +157,7 @@ describe('Theme Toggle Behavioral Verification', () => {
       throw new Error('QuotaExceededError');
     });
 
-    render(<DashboardClient />);
+    render(<ChatProvider><DashboardClient /></ChatProvider>);
 
     const toggleButton = screen.getAllByRole('button', { name: /switch to dark theme/i })[0];
 

@@ -4,6 +4,12 @@ import { getDb, seedDb } from '../src/lib/db';
 import { resetRateLimitsForTests } from '../src/lib/rate-limit';
 import { HumanMessage, AIMessage } from '@langchain/core/messages';
 
+vi.mock('../src/lib/paypal', () => ({
+  createOrder: vi.fn().mockResolvedValue({ id: 'mocked_order_123', status: 'CREATED' }),
+  captureOrder: vi.fn().mockResolvedValue({ status: 201, body: { purchase_units: [{ payments: { captures: [{ amount: { value: '20.00' } }] } }] } }),
+  getOrder: vi.fn().mockResolvedValue({ status: 'COMPLETED' })
+}));
+
 vi.mock('@paypal/agent-toolkit/langchain', () => ({
   PayPalAgentToolkit: class {
     getTools() {
