@@ -123,7 +123,10 @@ export function ChatWidget() {
 
   useEffect(() => {
     if (customerId && isOpen) {
-      loadState(customerId);
+      const timer = setTimeout(() => {
+        loadState(customerId);
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [customerId, isOpen, loadState]);
 
