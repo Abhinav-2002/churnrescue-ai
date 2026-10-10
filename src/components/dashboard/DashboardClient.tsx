@@ -122,7 +122,7 @@ export function DashboardClient() {
   const metricsUrl = useMemo(() => `/api/dashboard/metrics?days=${rangeDays}`, [rangeDays]);
 
   // Polling with v2 API
-  const { data, error, loading, lastUpdated, retry } = useMetricsPolling(
+  const { data, error, loading, lastSuccess, isStale, retry } = useMetricsPolling(
     metricsUrl,
     3000,
     isLive
@@ -131,28 +131,27 @@ export function DashboardClient() {
   // Reactive "Updated Ns ago" ticker
   useEffect(() => {
     const tick = () => {
-      if (!lastUpdated) return;
-      const diff = Math.floor((Date.now() - lastUpdated.getTime()) / 1000);
+      if (!lastSuccess) return;
+      const diff = Math.floor((Date.now() - lastSuccess.getTime()) / 1000);
       setSecondsAgo(Math.max(0, diff));
     };
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [lastUpdated]);
+  }, [lastSuccess]);
 
-  const isStale = Boolean(isLive && lastUpdated && secondsAgo > 15);
-
+  // isStale comes from the hook now
   const formattedTime = useMemo(() => {
-    if (!lastUpdated) return '--:--:-- UTC';
-    return lastUpdated.toISOString().substring(11, 19) + ' UTC';
-  }, [lastUpdated]);
+    if (!lastSuccess) return '--:--:-- UTC';
+    return lastSuccess.toISOString().substring(11, 19) + ' UTC';
+  }, [lastSuccess]);
 
   const updatedText = useMemo(() => {
-    if (!lastUpdated) return 'Connecting...';
+    if (!lastSuccess) return 'Connecting...';
     if (!isLive) return 'Polling paused';
     if (secondsAgo < 5) return 'Updated just now';
     return `Updated ${secondsAgo}s ago`;
-  }, [lastUpdated, isLive, secondsAgo]);
+  }, [lastSuccess, isLive, secondsAgo]);
 
   const handleOpenDrawer = (customerId: string, elRef?: React.RefObject<HTMLElement | null>) => {
     setSelectedCustomerId(customerId);

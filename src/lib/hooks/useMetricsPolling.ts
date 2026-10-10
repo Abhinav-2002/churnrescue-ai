@@ -11,7 +11,8 @@ export function useMetricsPolling(
   const [data, setData] = useState<MetricsV2Response | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [lastSuccess, setLastSuccess] = useState<Date | null>(null);
+  const [consecutiveFailures, setConsecutiveFailures] = useState(0);
   
   const etagRef = useRef<string | null>(null);
   const backoffRef = useRef<number>(0);
@@ -59,8 +60,14 @@ export function useMetricsPolling(
 
         if (!active) return;
 
-        if (res.status === 304) {
+        if (res.status === 304 || res.ok) {
+          setLastSuccess(new Date());
+          setConsecutiveFailures(0);
           backoffRef.current = 0;
+          setError(null);
+        }
+
+        if (res.status === 304) {
           timerRef.current = setTimeout(doFetch, intervalMs);
           return;
         }
@@ -74,13 +81,11 @@ export function useMetricsPolling(
         if (!active) return;
 
         setData(json);
-        setError(null);
         setLoading(false);
-        setLastUpdated(new Date());
-        backoffRef.current = 0;
         timerRef.current = setTimeout(doFetch, intervalMs);
       } catch (err: any) {
         if (!active || err.name === 'AbortError') return;
+        setConsecutiveFailures(c => c + 1);
         setError(err);
         setLoading(false);
         backoffRef.current = Math.min((backoffRef.current || intervalMs) * 2, 30000);
@@ -114,5 +119,13 @@ export function useMetricsPolling(
     setRetryCount(c => c + 1);
   }, []);
 
-  return { data, error, loading, lastUpdated, retry };
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const i = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(i);
+  }, []);
+
+  const isStale = consecutiveFailures >= 3 || (lastSuccess && (now - lastSuccess.getTime() > 15000));
+
+  return { data, error, loading, lastSuccess, consecutiveFailures, isStale, retry };
 }

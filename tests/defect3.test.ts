@@ -11,47 +11,67 @@ vi.mock('react', async () => {
 
 describe('Defect 3: Stale banner on 304 Not Modified', () => {
   beforeEach(() => {
-    // don't use fake timers globally to avoid waitFor hanging
+    vi.useFakeTimers();
   });
   
   afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  it('updates lastUpdated on 304 Not Modified to prevent stale banner', async () => {
-    let fetchCount = 0;
-    global.fetch = vi.fn().mockImplementation(() => {
-      fetchCount++;
-      if (fetchCount === 1) {
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          headers: new Headers({ ETag: 'etag1' }),
-          json: () => Promise.resolve({ range_totals: { current: { failed_amount_cents: 1000 } } })
-        });
-      } else {
-        return Promise.resolve({
-          ok: true,
-          status: 304,
-          headers: new Headers({ ETag: 'etag1' })
-        });
-      }
+  it('updates lastSuccess on 2xx and 304, and tracks failures for staleness', async () => {
+    let statusCode = 200;
+    global.fetch = vi.fn().mockImplementation(async () => {
+      return {
+        ok: statusCode < 400,
+        status: statusCode,
+        headers: new Headers({ ETag: 'etag1' }),
+        json: async () => ({ range_totals: { current: { failed_amount_cents: 1000 } } })
+      };
     });
 
-    const { result } = renderHook(() => useMetricsPolling('/api/dashboard/metrics', 100)); // 100ms interval!
+    const { result, unmount } = renderHook(() => useMetricsPolling('/api/dashboard/metrics', 1000));
+    
+    // Initial fetch (200)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(result.current.loading).toBe(false);
+    
+    const firstUpdate = result.current.lastSuccess?.getTime() || 0;
+    expect(firstUpdate).toBeGreaterThan(0);
+    expect(result.current.isStale).toBe(false);
 
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-      expect(result.current.data).not.toBeNull();
-    });
+    // Second fetch (304)
+    statusCode = 304;
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    
+    const secondUpdate = result.current.lastSuccess?.getTime() || 0;
+    expect(secondUpdate).toBeGreaterThan(firstUpdate);
+    expect(result.current.isStale).toBe(false);
+    expect(result.current.consecutiveFailures).toBe(0);
 
-    const firstUpdated = result.current.lastUpdated;
-    expect(firstUpdated).not.toBeNull();
+    // 1st failure (500) -> backoff to 2000ms
+    statusCode = 500;
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(result.current.consecutiveFailures).toBe(1);
+    expect(result.current.isStale).toBe(false);
 
-    // wait for 200ms to allow a second fetch to occur
-    await new Promise(r => setTimeout(r, 200));
+    // 2nd failure (500) -> backoff to 4000ms
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(result.current.consecutiveFailures).toBe(2);
+    expect(result.current.isStale).toBe(false);
 
-    // After 304, lastUpdated should have been updated to the new time, but it wasn't!
-    expect(result.current.lastUpdated?.getTime()).toBeGreaterThan(firstUpdated!.getTime());
+    // 3rd failure (500) - becomes stale due to consecutiveFailures = 3 (time elapsed: ~7s total)
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(result.current.consecutiveFailures).toBe(3);
+    expect(result.current.isStale).toBe(true);
+
+    // Recovery (200)
+    statusCode = 200;
+    await act(async () => { await vi.advanceTimersByTimeAsync(8000); });
+    expect(result.current.consecutiveFailures).toBe(0);
+    expect(result.current.isStale).toBe(false);
+    
+    unmount();
   });
 });
