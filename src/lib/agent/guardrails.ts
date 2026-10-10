@@ -54,7 +54,7 @@ export function validateProposal(
   const keywords = opts.escalationKeywords ?? [];
 
   if (keywords.length) {
-    if (proposal?.action !== 'escalate') clamps.push(`forced escalate by keyword rule: ${keywords.join(',')}`);
+    if (opts.intent !== 'escalate') clamps.push(`forced escalate by keyword rule: ${keywords.join(',')}`);
     return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps };
   }
 
@@ -119,18 +119,13 @@ export function validateProposal(
       return { action: 'partial_credit', final_amount_cents: final, discount_percent: pct, target_plan: null, creates_offer: true, clamps };
     }
     case 'downgrade': {
-      const requested = findPlan(proposal?.target_plan);
-      let target = requested && requested.priceCents < ctx.plan_price_cents ? requested : undefined;
-      if (!target) {
-        const lower = nextLowerPlan(ctx.plan_price_cents);
-        if (!lower) return retry(ctx, clamps);
-        target = lower;
-      }
+      const lower = nextLowerPlan(ctx.plan_price_cents);
+      if (!lower) return retry(ctx, clamps);
       return {
         action: 'downgrade',
-        final_amount_cents: Math.max(target.priceCents, MIN_CHARGE_CENTS),
+        final_amount_cents: Math.max(lower.priceCents, MIN_CHARGE_CENTS),
         discount_percent: null,
-        target_plan: target.name,
+        target_plan: lower.name,
         creates_offer: true,
         clamps,
       };

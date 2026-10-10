@@ -4,6 +4,7 @@ import { getDb } from '../db';
 import { create_recovery_order, createOrderInternal } from './tools';
 import { Proposal, proposalSchema, validateProposal, ValidatedDecision, detectEscalation, checkMessageAmounts, CustomerContext, sanitizeReply } from './guardrails';
 import { formatDollars } from '../money';
+import { nextLowerPlan } from '../plans';
 
 const GraphState = Annotation.Root({
   ...MessagesAnnotation.spec,
@@ -102,6 +103,7 @@ async function validate_guardrails(state: typeof GraphState.State) {
   );
 
   if (state.intent === 'accept' && state.activeOfferId) {
+
     db.prepare(`UPDATE offers SET status = 'accepted', accepted_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'`).run(state.activeOfferId);
     const offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(state.activeOfferId) as any;
     if (offer) {
@@ -145,7 +147,15 @@ Compose a polite response to the customer based on the action. If escalating, te
   const allowed = state.customerContext?.plan_price_cents ? [state.customerContext.plan_price_cents] : [];
 
   const pushbacks = state.ladderStep ?? 0;
-  const lower_tier_available = pushbacks < 2 && usage < 60;
+
+  let lower_tier_available = false;
+  if (state.decision?.action === 'partial_credit') {
+    lower_tier_available = pushbacks < 2 && usage < 60;
+  } else if (state.decision?.action === 'downgrade') {
+    lower_tier_available = !!nextLowerPlan(state.decision.final_amount_cents || state.customerContext!.plan_price_cents);
+  } else {
+    lower_tier_available = usage < 60;
+  }
 
   let { ok, reason } = checkMessageAmounts(lastMsg, required, allowed);
   if (ok && lower_tier_available && /(lowest|unable to offer|can't go lower|cannot go lower)/i.test(lastMsg)) {
@@ -178,8 +188,10 @@ Compose a polite response to the customer based on the action. If escalating, te
       // First message must never be a pause for usage < 60 – this branch should not be reached
       // but if it is, fall back to a credit offer message
       lastMsg = `Your ${planName} renewal of ${priceStr} didn't go through. Because you've only used ${usage}% of your plan, we can offer a discounted rate of ${newStr}. Would you like to proceed?`;
+    } else if (action === 'downgrade') {
+      lastMsg = `Your ${planName} renewal of ${priceStr} didn't go through. Because you've only used ${usage}% of your plan, we can move you to the ${state.decision?.target_plan || 'lower'} plan for ${newStr}. Would you like to proceed?`;
     } else {
-      // partial_credit / downgrade
+      // partial_credit
       lastMsg = `Your ${planName} renewal of ${priceStr} didn't go through. Because you've only used ${usage}% of your plan, we can offer a new amount of ${newStr}. Would you like to proceed?`;
     }
     templateUsed.used = true;
@@ -187,7 +199,7 @@ Compose a polite response to the customer based on the action. If escalating, te
   } else if (!ok) {
     // Non-first message with bad amounts
     const action = state.decision?.action;
-    if (state.intent === 'accept') {
+    if (state.intent === 'accept' && state.activeOfferId) {
       if (action === 'pause') {
         lastMsg = `Your subscription pause is confirmed.`;
       } else {
@@ -201,8 +213,10 @@ Compose a polite response to the customer based on the action. If escalating, te
       }
     } else if (action === 'pause') {
       lastMsg = `Your subscription will be paused with no charge. Please confirm if you want to proceed.`;
+    } else if (action === 'downgrade') {
+      lastMsg = `We can move you to the ${state.decision?.target_plan || 'lower'} plan for ${newStr}. Would you like to proceed?`;
     } else {
-      // partial_credit / downgrade — choose template by context
+      // partial_credit
       if (!lower_tier_available) {
         lastMsg = `${newStr} is the best I can offer. Would you like to proceed?`;
       } else if (pushbacks > 0) {
@@ -237,7 +251,7 @@ Compose a polite response to the customer based on the action. If escalating, te
       INSERT INTO agent_actions (id, customer_id, billing_event_id, action, reasoning, details_json)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(`act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`, state.customerId, state.billingEventId, actionName, state.rawProposal?.reasoning || 'Flagged by rules', JSON.stringify({
-      proposed_discount_percent: state.rawProposal?.discount_percent ?? null,
+      proposed_discount_percent: null,
       approved_discount_percent: state.decision?.discount_percent ?? null,
       clamps: state.decision?.clamps ?? [],
       template_used: templateUsed.used,
@@ -254,7 +268,7 @@ async function persist(state: typeof GraphState.State) {
   const db = getDb();
   if (state.intent === 'escalate' || state.decision?.action === 'escalate') {
     db.prepare(`UPDATE offers SET status = 'superseded' WHERE customer_id = ? AND status IN ('pending', 'accepted')`).run(state.customerId);
-  } else if (state.intent !== 'accept' && state.decision?.creates_offer) {
+  } else if (state.decision?.creates_offer && !(state.intent === 'accept' && state.activeOfferId)) {
     const existing = db.prepare(`SELECT * FROM offers WHERE customer_id = ? AND status IN ('pending', 'accepted') ORDER BY rowid DESC LIMIT 1`).get(state.customerId) as any;
     if (existing && existing.kind === state.decision.action && existing.amount_cents === state.decision.final_amount_cents) {
       // Reuse current offer when kind and amount are unchanged

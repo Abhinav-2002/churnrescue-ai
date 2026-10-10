@@ -119,7 +119,7 @@ export function useMetricsPolling(
     setRetryCount(c => c + 1);
   }, []);
 
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const i = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(i);

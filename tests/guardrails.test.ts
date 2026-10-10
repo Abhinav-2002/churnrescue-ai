@@ -120,16 +120,27 @@ describe('guardrails', () => {
     expect(res.action).toBe('escalate');
   });
 
-  it('decline intent handles logic correctly', () => {
+  it('full-price retry behavior maps intents correctly based on usage', () => {
     const ctxLow = { plan_name: 'Pro', plan_price_cents: 5000, usage_percent: 10 };
     const ctxHigh = { plan_name: 'Pro', plan_price_cents: 5000, usage_percent: 90 };
-    const proposal = { action: 'retry' as const, reasoning: 'test' };
+    const proposal = { reasoning: 'test' };
 
-    let res = validateProposal(proposal, ctxLow, { intent: 'decline' });
-    expect(res.action).toBe('partial_credit');
+    // Explicit accept (or random unrecognized intents) fall through to retry (full price)
+    expect(validateProposal(proposal, ctxLow, { intent: 'accept' }).action).toBe('retry');
+    expect(validateProposal(proposal, ctxHigh, { intent: 'accept' }).action).toBe('retry');
 
-    res = validateProposal(proposal, ctxHigh, { intent: 'decline' });
-    expect(res.action).toBe('retry');
+    // Decline, negotiate, neutral, propose must NOT take full price for low-usage
+    const nonFullPriceIntents = ['decline', 'negotiate', 'neutral', 'propose'] as const;
+    for (const intent of nonFullPriceIntents) {
+      expect(validateProposal(proposal, ctxLow, { intent }).action).toBe('partial_credit');
+      expect(validateProposal(proposal, ctxHigh, { intent }).action).toBe('retry'); // High usage always full-price
+    }
+
+    // Pause intent triggers pause
+    expect(validateProposal(proposal, ctxLow, { intent: 'cancel' }).action).toBe('pause');
+
+    // Escalate intent triggers escalate
+    expect(validateProposal(proposal, ctxLow, { intent: 'escalate' }).action).toBe('escalate');
   });
 
 });

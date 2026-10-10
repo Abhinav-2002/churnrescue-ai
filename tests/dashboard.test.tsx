@@ -486,7 +486,7 @@ describe('Checkpoint D — Dashboard Panels Component Tests', () => {
    * 7. CUSTOMERS TABLE
    * ------------------------------------------------------------------ */
   describe('CustomersTable', () => {
-    const mockCustomers: CustomerMetricRow[] = [
+    const getMockCustomers = (): CustomerMetricRow[] => [
       {
         id: 'cust_1',
         name: 'Acme Corp',
@@ -518,7 +518,7 @@ describe('Checkpoint D — Dashboard Panels Component Tests', () => {
     ];
 
     it('renders customer rows with status pills, plan, and formatted cents', () => {
-      render(<CustomersTable customers={mockCustomers} />);
+      render(<CustomersTable customers={getMockCustomers()} />);
 
       expect(screen.getByText('Acme Corp')).toBeTruthy();
       expect(screen.getByText('Enterprise Pro')).toBeTruthy();
@@ -529,7 +529,7 @@ describe('Checkpoint D — Dashboard Panels Component Tests', () => {
     });
 
     it('filters rows dynamically by search input (name or plan)', () => {
-      render(<CustomersTable customers={mockCustomers} />);
+      render(<CustomersTable customers={getMockCustomers()} />);
 
       const searchInput = screen.getByPlaceholderText('Search by customer or plan...');
       fireEvent.change(searchInput, { target: { value: 'Enterprise' } });
@@ -539,7 +539,7 @@ describe('Checkpoint D — Dashboard Panels Component Tests', () => {
     });
 
     it('filters rows by status dropdown', () => {
-      render(<CustomersTable customers={mockCustomers} />);
+      render(<CustomersTable customers={getMockCustomers()} />);
 
       const statusSelect = screen.getByRole('combobox');
       fireEvent.change(statusSelect, { target: { value: 'recovered' } });
@@ -549,7 +549,7 @@ describe('Checkpoint D — Dashboard Panels Component Tests', () => {
     });
 
     it('highlights recently updated rows (<5s) with motion-safe:animate-pulse class', () => {
-      render(<CustomersTable customers={mockCustomers} />);
+      render(<CustomersTable customers={getMockCustomers()} />);
 
       const acmeRow = screen.getByRole('row', {
         name: /Acme Corp/,
@@ -559,7 +559,7 @@ describe('Checkpoint D — Dashboard Panels Component Tests', () => {
 
     it('triggers drawer opening when clicking row or pressing Enter', () => {
       const onOpenDrawer = vi.fn();
-      render(<CustomersTable customers={mockCustomers} onOpenDrawer={onOpenDrawer} />);
+      render(<CustomersTable customers={getMockCustomers()} onOpenDrawer={onOpenDrawer} />);
 
       const acmeRow = screen.getByRole('row', {
         name: /Acme Corp/,
