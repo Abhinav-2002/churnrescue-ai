@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, FormEvent } from 'react';
+import { useState, useEffect, useRef, FormEvent, useCallback } from 'react';
 import { PayPalProvider, PayPalOneTimePaymentButton, usePayPal, INSTANCE_LOADING_STATE } from '@paypal/react-paypal-js/sdk-v6';
 import { mapCaptureResponse } from '@/lib/capture-mapper';
 import { useChat } from './ChatContext';
@@ -65,18 +65,13 @@ export function ChatWidget() {
   const [systemMsg, setSystemMsg] = useState<{ kind: string, text: string } | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const startAttempted = useRef(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, systemMsg, nextStep, isOpen]);
 
-  useEffect(() => {
-    if (customerId && isOpen) {
-      loadState(customerId);
-    }
-  }, [customerId, isOpen]);
-
-  async function loadState(cId: string) {
+  const loadState = useCallback(async (cId: string) => {
     setLoading(true);
     try {
       const res = await fetch(`/api/agent/state?customerId=${cId}`);
@@ -98,18 +93,14 @@ export function ChatWidget() {
       if (Object.keys(newOfferInfo).length > 0) {
         setOfferInfo(prev => ({ ...prev, ...newOfferInfo }));
       }
-
-      if (data.customer?.status === 'at_risk' && data.messages.length === 0) {
-        startConversation(cId);
-      }
     } catch(e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  async function startConversation(cId: string) {
+  const startConversation = useCallback(async (cId: string) => {
     setTyping(true);
     try {
       const res = await fetch('/api/agent/start', {
@@ -128,7 +119,21 @@ export function ChatWidget() {
     } finally {
       setTyping(false);
     }
-  }
+  }, [loadState]);
+
+  useEffect(() => {
+    if (customerId && isOpen) {
+      loadState(customerId);
+    }
+  }, [customerId, isOpen, loadState]);
+
+  // Trigger startConversation if we loaded an at_risk customer with no messages
+  useEffect(() => {
+    if (customer?.status === 'at_risk' && messages.length === 0 && !startAttempted.current) {
+      startAttempted.current = true;
+      startConversation(customer.id);
+    }
+  }, [customer, messages, startConversation]);
 
   async function sendMessage(text: string) {
     if (!text.trim() || !customerId) return;

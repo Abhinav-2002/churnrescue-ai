@@ -173,4 +173,31 @@ describe('Widget Smoke Test', () => {
       expect(screen.getByText(/Failed to load payment options/i)).toBeTruthy();
     });
   });
+
+  it('D10: empty at_risk state starts the conversation at most once (no start/state loop)', async () => {
+    mockFetch.mockImplementation((url) => {
+      if (url.startsWith('/api/agent/state')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ customer: { status: 'at_risk' }, messages: [], nextStep: 'none' })
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    render(
+      <ChatProvider>
+        <TestHarness />
+      </ChatProvider>
+    );
+
+    await waitFor(() => {
+      const starts = mockFetch.mock.calls.filter(([u]) => String(u).startsWith('/api/agent/start'));
+      expect(starts.length).toBeGreaterThanOrEqual(1);
+    });
+    await new Promise(r => setTimeout(r, 300));
+
+    const starts = mockFetch.mock.calls.filter(([u]) => String(u).startsWith('/api/agent/start'));
+    expect(starts.length).toBe(1);
+  });
 });
