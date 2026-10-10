@@ -204,7 +204,7 @@ describe('End-to-End LLM Mocked Tests', () => {
     let json = await res.json();
     
     expect(json.reply).not.toContain('https://');
-    expect(json.reply).toContain(`We can offer`);
+    expect(json.reply).toContain('We can offer a new amount of $20.00.');
   });
 
   it('"make it $20" after a $12.50 offer does not accept a superseded offer', async () => {
