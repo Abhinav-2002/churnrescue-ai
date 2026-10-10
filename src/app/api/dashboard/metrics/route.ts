@@ -246,7 +246,7 @@ export async function GET(req: Request) {
         c.usage_percent, c.status, c.created_at,
         (SELECT action FROM agent_actions WHERE customer_id = c.id ORDER BY created_at DESC LIMIT 1) as last_action,
         (SELECT created_at FROM agent_actions WHERE customer_id = c.id ORDER BY created_at DESC LIMIT 1) as last_action_at,
-        COALESCE((SELECT SUM(amount_cents) FROM billing_events WHERE customer_id = c.id AND status = 'failed'), 0) as failed_amount_cents,
+        COALESCE((SELECT SUM(amount_cents) FROM billing_events WHERE customer_id = c.id AND status IN ('failed', 'recovered')), 0) as failed_amount_cents,
         COALESCE((SELECT SUM(recovered_amount_cents) FROM recoveries WHERE customer_id = c.id), 0) as recovered_amount_cents
       FROM customers c
       LIMIT 200
@@ -317,7 +317,7 @@ export async function GET(req: Request) {
     const seriesFailed = db.prepare(`
       SELECT DATE(created_at) as date, SUM(amount_cents) as total
       FROM billing_events
-      WHERE status = 'failed'
+      WHERE status IN ('failed', 'recovered')
       GROUP BY DATE(created_at)
     `).all() as any[];
 
@@ -370,7 +370,8 @@ export async function GET(req: Request) {
     };
 
     // 7. Funnel (with strict monotonic non-increasing property: failed >= offered >= accepted >= paid)
-    const totalFailedRaw = (db.prepare(`SELECT COUNT(*) as c FROM billing_events WHERE status = 'failed'`).get() as any).c;
+    const totalFailedRaw = (db.prepare(`SELECT COUNT(*) as c FROM billing_events
+      WHERE status IN ('failed', 'recovered')`).get() as any).c;
     const totalPaidRaw = (db.prepare(`SELECT COUNT(*) as c FROM recoveries`).get() as any).c;
     const totalAcceptedRaw = Math.max(
       (db.prepare(`SELECT COUNT(*) as c FROM offers WHERE status = 'accepted'`).get() as any).c,
@@ -380,7 +381,7 @@ export async function GET(req: Request) {
       (db.prepare(`SELECT COUNT(*) as c FROM offers WHERE status != 'superseded'`).get() as any).c,
       totalAcceptedRaw
     );
-    const funnelFailed = Math.max(totalFailedRaw, totalOfferedRaw);
+    const funnelFailed = totalFailedRaw;
     const funnelOffered = totalOfferedRaw;
     const funnelAccepted = totalAcceptedRaw;
     const funnelPaid = totalPaidRaw;
@@ -389,7 +390,7 @@ export async function GET(req: Request) {
     const currFailedRow = db.prepare(`
       SELECT COALESCE(SUM(amount_cents), 0) as total, COUNT(*) as count
       FROM billing_events
-      WHERE status = 'failed' AND created_at >= ?
+      WHERE status IN ('failed', 'recovered') AND created_at >= ?
     `).get(currStartIso) as any;
     
     const currRecoveredRow = db.prepare(`
@@ -401,7 +402,7 @@ export async function GET(req: Request) {
     const prevFailedRow = db.prepare(`
       SELECT COALESCE(SUM(amount_cents), 0) as total, COUNT(*) as count
       FROM billing_events
-      WHERE status = 'failed' AND created_at >= ? AND created_at < ?
+      WHERE status IN ('failed', 'recovered') AND created_at >= ? AND created_at < ?
     `).get(prevStartIso, currStartIso) as any;
 
     const prevRecoveredRow = db.prepare(`

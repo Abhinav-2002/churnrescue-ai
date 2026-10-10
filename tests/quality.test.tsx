@@ -4,7 +4,6 @@
 import { render, screen, act, cleanup } from '@testing-library/react';
 import { expect, test, vi, describe, afterEach, beforeEach } from 'vitest';
 import { DashboardClient } from '../src/components/dashboard/DashboardClient';
-import { SWRConfig } from 'swr';
 import React from 'react';
 
 const createMatchMedia = (width: number) => {
@@ -57,9 +56,9 @@ describe('Checkpoint E Quality Gates', () => {
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     render(
-      <SWRConfig value={{ provider: () => new Map() }}>
+      <>
         <DashboardClient />
-      </SWRConfig>
+      </>
     );
 
     await act(async () => {
@@ -72,9 +71,9 @@ describe('Checkpoint E Quality Gates', () => {
 
   test('Keyboard-only operation and tab order', async () => {
     const { container } = render(
-      <SWRConfig value={{ provider: () => new Map() }}>
+      <>
         <DashboardClient />
-      </SWRConfig>
+      </>
     );
 
     await act(async () => {
@@ -92,9 +91,9 @@ describe('Checkpoint E Quality Gates', () => {
 
   test('Reduced-motion behaviour test', async () => {
     render(
-      <SWRConfig value={{ provider: () => new Map() }}>
+      <>
         <DashboardClient />
-      </SWRConfig>
+      </>
     );
 
     await act(async () => {
@@ -111,9 +110,9 @@ describe('Checkpoint E Quality Gates', () => {
     const initialTimerCount = vi.getTimerCount();
     
     const { unmount } = render(
-      <SWRConfig value={{ provider: () => new Map() }}>
+      <>
         <DashboardClient />
-      </SWRConfig>
+      </>
     );
 
     await act(async () => {

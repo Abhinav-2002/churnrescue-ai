@@ -20,6 +20,7 @@ import { GuardrailsPanel } from './GuardrailsPanel';
 import { HumanQueuePanel } from './HumanQueuePanel';
 import { CustomersTable } from './CustomersTable';
 import { CustomerDrawer } from './CustomerDrawer';
+import { useChat } from '@/components/ChatContext';
 
 const THEME_CHANGE_EVENT = 'churnrescue-theme-change';
 const themeListeners = new Set<() => void>();
@@ -69,6 +70,7 @@ function getServerThemeSnapshot(): 'light' | 'dark' {
 }
 
 export function DashboardClient() {
+  const { setCustomerId } = useChat();
   const [isLive, setIsLive] = useState(true);
   const theme = React.useSyncExternalStore(subscribeTheme, getThemeSnapshot, getServerThemeSnapshot);
   const [secondsAgo, setSecondsAgo] = useState(0);
@@ -154,6 +156,7 @@ export function DashboardClient() {
 
   const handleOpenDrawer = (customerId: string, elRef?: React.RefObject<HTMLElement | null>) => {
     setSelectedCustomerId(customerId);
+    setCustomerId(customerId);
     if (elRef?.current) {
       triggerRef.current = elRef.current;
     } else if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
@@ -288,12 +291,7 @@ export function DashboardClient() {
             Sandbox
           </Badge>
 
-          <Link
-            href="/"
-            className="text-xs font-medium px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-          >
-            Chat Demo
-          </Link>
+          
 
           <button
             type="button"
@@ -391,15 +389,7 @@ export function DashboardClient() {
               </button>
 
               {/* Link to Chat Demo */}
-              <Link
-                href="/"
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-900 transition-colors"
-              >
-                <span>Chat Demo</span>
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
-              </Link>
+              
             </div>
           </div>
 
@@ -510,3 +500,4 @@ export function DashboardClient() {
     </div>
   );
 }
+

@@ -550,4 +550,67 @@ describe('Metrics Endpoint v2', () => {
     expect(json).toEqual({ error: 'internal_error' });
     expect(JSON.stringify(json)).not.toContain('/var/secrets');
   });
+
+
+  it('21. regression: CF-01 Failed Amount aggregates ALL failed billing volume regardless of recovery status', async () => {
+    // We will use the genuine capture endpoint to transition the billing event to 'recovered'
+    const { POST: capturePOST } = await import('../src/app/api/offers/[offerId]/capture/route');
+    const paypal = await import('../src/lib/paypal');
+    vi.spyOn(paypal, 'getOrder').mockResolvedValue({
+      status: 'APPROVED',
+      purchase_units: [{ amount: { value: '40.00' } }]
+    } as any);
+    vi.spyOn(paypal, 'captureOrder').mockResolvedValue({
+      status: 201,
+      body: { purchase_units: [{ payments: { captures: [{ amount: { value: '40.00' } }] } }] }
+    } as any);
+
+    const db = getDb();
+    
+    // 1. Setup a $50 failed billing event using the actual failures module
+    db.prepare(`INSERT INTO customers (id, name, email, plan_name, plan_price_cents, usage_percent, status) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run('c_1', 'Test', 'test@test.com', 'Pro', 5000, 50, 'healthy');
+    const { handlePaymentFailed } = await import('../src/lib/failures');
+    const { billingEventId } = handlePaymentFailed({
+      customerId: 'c_1',
+      source: 'webhook',
+      paypalErrorCode: 'INSTRUMENT_DECLINED',
+      idempotencyKey: 'cf01_idem',
+      amountCents: 5000,
+      paypalOrderId: 'pay_cf01_fail'
+    });
+      
+    // 2. Create an offer and accept it
+    db.prepare(`INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, status, expires_at, paypal_order_id, ladder_step) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run('off_cf01_real', 'c_1', billingEventId, 'partial_credit', 4000, 'accepted', new Date(Date.now() + 100000).toISOString(), 'pay_cf01_capture', 0);
+      
+    // 3/4/5. Call actual capture endpoint to recover $40 and transition the billing event
+    const captureReq = new Request('http://localhost/api/offers/off_cf01_real/capture', { method: 'POST' });
+    const captureRes = await capturePOST(captureReq, { params: Promise.resolve({ offerId: 'off_cf01_real' }) });
+    expect(captureRes.status).toBe(200);
+
+    // 6. Call: GET /api/dashboard/metrics?days=7
+    const res = await GET(await mockRequest('http://localhost:3000/api/dashboard/metrics?days=7')) as Response;
+    const json = await res.json();
+
+    // Assert: failed amount = 5000 cents, recovered amount = 4000 cents, recovery rate = 0.8
+    expect(json.range_totals.current.failed_amount_cents).toBe(5000);
+    expect(json.range_totals.current.recovered_revenue_cents).toBe(4000);
+    expect(json.range_totals.current.recovery_rate).toBe(0.8);
+    
+    // The funnel must remain monotonic
+    expect(json.funnel.failed).toBe(1);
+    expect(json.funnel.offered).toBe(1);
+    expect(json.funnel.accepted).toBe(1);
+    expect(json.funnel.paid).toBe(1);
+  });
+  
+  it('22. regression: CF-01 zero failed amount equals zero recovery rate', async () => {
+    const res = await GET(await mockRequest('http://localhost:3000/api/dashboard/metrics?days=7')) as Response;
+    const json = await res.json();
+
+    expect(json.range_totals.current.failed_amount_cents).toBe(0);
+    expect(json.range_totals.current.recovered_revenue_cents).toBe(0);
+    expect(json.range_totals.current.recovery_rate).toBe(0);
+  });
 });

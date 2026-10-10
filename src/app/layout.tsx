@@ -18,6 +18,9 @@ export const metadata: Metadata = {
   description: "Autonomous billing recovery agent",
 };
 
+import { ChatProvider } from "@/components/ChatContext";
+import { ChatWidget } from "@/components/ChatWidget";
+
 export default async function RootLayout({
   children,
 }: {
@@ -41,7 +44,12 @@ export default async function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${themeClass} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <ChatProvider>
+          {children}
+          <ChatWidget />
+        </ChatProvider>
+      </body>
     </html>
   );
 }
