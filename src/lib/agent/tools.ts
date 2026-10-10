@@ -75,6 +75,9 @@ export const create_recovery_order = tool(
 
 import * as paypal from '../paypal';
 
+/** F-D4: a claim older than this is treated as abandoned (process died mid-createOrder). */
+export const ORDER_CLAIM_STALE_MS = 5 * 60 * 1000;
+
 export async function createOrderInternal(offerId: string) {
   const db = getDb();
   let offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(offerId) as any;
@@ -82,16 +85,22 @@ export async function createOrderInternal(offerId: string) {
   if (offer.status !== 'accepted') return;
   if (offer.paypal_order_id && offer.paypal_order_status !== 'declined') return offer.paypal_order_id;
   
-  // Atomic claim
-  const claimRes = db.prepare(`UPDATE offers SET paypal_order_status = 'creating' WHERE id = ? AND (paypal_order_status IS NULL OR paypal_order_status = 'declined')`).run(offerId);
+  // F-D4: atomic claim. A claim older than ORDER_CLAIM_STALE_MS can be re-claimed,
+  // so a crash between claim and createOrder never strands the offer.
+  const now = new Date();
+  const staleBefore = new Date(now.getTime() - ORDER_CLAIM_STALE_MS).toISOString();
+  const claimRes = db.prepare(`
+    UPDATE offers
+    SET order_claimed_at = ?
+    WHERE id = ?
+    AND (paypal_order_id IS NULL OR paypal_order_status = 'declined')
+    AND (order_claimed_at IS NULL OR order_claimed_at < ?)
+  `).run(now.toISOString(), offerId, staleBefore);
   if (claimRes.changes === 0) {
-    // We lost the race. Wait briefly and return the stored order.
-    // In production we'd poll or return an in-progress status. 
-    // Here we'll just read it back since the test expects us to return the generated ID.
-    // Wait for the winner to finish writing it
+    // Lost the race: wait briefly for the winner to store the order id.
     for (let i = 0; i < 50; i++) {
       const current = db.prepare('SELECT paypal_order_id, paypal_order_status FROM offers WHERE id = ?').get(offerId) as any;
-      if (current.paypal_order_id && current.paypal_order_status !== 'creating') {
+      if (current.paypal_order_id && current.paypal_order_status !== 'declined') {
         return current.paypal_order_id;
       }
       await new Promise(r => setTimeout(r, 10));
@@ -105,7 +114,7 @@ export async function createOrderInternal(offerId: string) {
     const status = res.status ? res.status.toLowerCase() : 'created';
     const approveLink = res.links?.find((l: any) => l.rel === 'approve' || l.rel === 'payer-action')?.href || null;
     
-    db.prepare('UPDATE offers SET paypal_order_id = ?, paypal_order_status = ?, paypal_approve_url = ? WHERE id = ?').run(
+    db.prepare('UPDATE offers SET paypal_order_id = ?, paypal_order_status = ?, paypal_approve_url = ?, order_claimed_at = NULL WHERE id = ?').run(
       res.id, status, approveLink, offerId
     );
     
@@ -114,7 +123,7 @@ export async function createOrderInternal(offerId: string) {
     return finalOffer.paypal_order_id;
   } catch (e) {
     console.error('Failed to create order internally:', e);
-    db.prepare(`UPDATE offers SET paypal_order_status = NULL WHERE id = ?`).run(offerId);
+    db.prepare(`UPDATE offers SET order_claimed_at = NULL WHERE id = ?`).run(offerId);
     return null;
   }
 }
