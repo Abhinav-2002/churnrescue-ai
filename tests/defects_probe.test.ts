@@ -13,6 +13,26 @@ vi.mock('../src/lib/paypal', () => ({
   createOrder: vi.fn().mockResolvedValue({ id: 'new_order_123', status: 'CREATED' }),
 }));
 
+// D12: hermetic model. Without this mock the probes called the real LLM over the network.
+// When LLM_MODEL is the deliberately invalid name, every model call rejects (model-not-found).
+vi.mock('../src/lib/agent/llm', async () => {
+  const { AIMessage } = await import('@langchain/core/messages');
+  return {
+    getLlm: vi.fn(() => {
+      const failing = process.env.LLM_MODEL === 'invalid-model-name-123';
+      const result = (value: unknown) =>
+        failing ? vi.fn().mockRejectedValue(new Error('model not found')) : vi.fn().mockResolvedValue(value);
+      return {
+        bindTools() { return this; },
+        withStructuredOutput: () => ({
+          invoke: result({ intent: 'accept', proposal: { action: 'partial_credit', reasoning: 'test' } })
+        }),
+        invoke: result(new AIMessage('OK'))
+      };
+    })
+  };
+});
+
 describe('Systematic Probing', () => {
   beforeEach(() => {
     resetDb();

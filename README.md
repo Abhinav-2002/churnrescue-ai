@@ -13,6 +13,11 @@ Required variables for deployment:
 
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Prerequisites
+If you are developing on Windows, `better-sqlite3` requires compiling from source for Node.js versions lacking a prebuilt binary (e.g. Node 22). Either:
+1. Use an LTS version of Node (e.g. Node 20) with a prebuilt binary.
+2. Install Visual Studio Build Tools with the "Desktop development with C++" workload so `node-gyp` can compile the module.
+
 ## Getting Started
 
 First, run the development server:
