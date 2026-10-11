@@ -274,7 +274,7 @@ Compose a polite response to the customer based on the action. If escalating, te
 async function persist(state: typeof GraphState.State) {
   const db = getDb();
   if (state.intent === 'escalate' || state.decision?.action === 'escalate') {
-    db.prepare(`UPDATE offers SET status = 'superseded' WHERE customer_id = ? AND status NOT IN ('captured', 'superseded')`).run(state.customerId);
+    db.prepare(`UPDATE offers SET status = 'superseded' WHERE customer_id = ? AND status IN ('pending', 'accepted')`).run(state.customerId);
   } else if (state.decision?.creates_offer && !(state.intent === 'accept' && state.activeOfferId)) {
     const existing = db.prepare(`SELECT * FROM offers WHERE customer_id = ? AND status IN ('pending', 'accepted') ORDER BY rowid DESC LIMIT 1`).get(state.customerId) as any;
     if (existing && existing.kind === state.decision.action && existing.amount_cents === state.decision.final_amount_cents) {

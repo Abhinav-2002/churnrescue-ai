@@ -192,23 +192,19 @@ Every card displays: Current Period Value, Change vs Previous Period (Arrow + Si
 ## 6. A5. Recovery Funnel Specification
 
 ### Funnel Stages:
-1. **Failed Payments**:
-   - Source: $\text{COUNT}(\text{DISTINCT id})$ from `billing_events` WHERE `status = 'failed'` in selected range.
-2. **Offered Intervention**:
-   - Source: $\text{COUNT}(\text{DISTINCT billing\_event\_id})$ from `offers` WHERE `status != 'superseded'` in selected range.
-3. **Accepted Offer**:
-   - Source: $\text{COUNT}(\text{DISTINCT billing\_event\_id})$ from `offers` WHERE `status = 'accepted'` (includes accepted partial credits, downgrades, and pauses) in selected range.
-4. **Payment Successful / Saved**:
-   - Source: $\text{COUNT}(\text{DISTINCT billing\_event\_id})$ from `recoveries` in selected range.
+Stages are defined as **nested sets of unique customers**, ensuring monotonicity ($\text{Counts}_{\text{Failed}} \ge \text{Counts}_{\text{Offered}} \ge \text{Counts}_{\text{Accepted}} \ge \text{Counts}_{\text{Paid}}$) holds strictly by construction without clamping or artificial `Math.min/max`:
+1. **Stage 1: Failed Renewal Customers (`failed`)**:
+   - Source: $\text{COUNT}(\text{DISTINCT customer\_id})$ from `billing_events` WHERE `status IN ('failed', 'recovered', 'paused')`.
+2. **Stage 2: Interventions Offered (`offered`)**:
+   - Source: $\text{COUNT}(\text{DISTINCT customer\_id})$ from `offers` WHERE `status != 'superseded'` for customers in Stage 1.
+3. **Stage 3: Terms Accepted (`accepted`)**:
+   - Source: $\text{COUNT}(\text{DISTINCT customer\_id})$ from `offers` WHERE `status IN ('accepted', 'captured')` or `customers.status = 'paused'` for customers in Stage 2 (labeled in UI as `(includes confirmed pauses)`).
+4. **Stage 4: Recovered Customers (`paid`)**:
+   - Source: $\text{COUNT}(\text{DISTINCT customer\_id})$ from `recoveries` for customers in Stage 3.
 
-### Monotonic Non-Increasing Invariant:
-$$\text{Counts}_{\text{Failed}} \ge \text{Counts}_{\text{Offered}} \ge \text{Counts}_{\text{Accepted}} \ge \text{Counts}_{\text{Paid}}$$
-- **Guarantee Mechanism**:
-  1. Every `offer` requires a valid foreign key referencing an existing `billing_event` with `status = 'failed'`.
-  2. An offer can only transition to `'accepted'` if it was previously created as `'offered'`.
-  3. A `recovery` record is written strictly upon verified capture of an `'accepted'` offer.
-  4. Pauses are counted as accepted interventions; for billing events where a pause was accepted, they count toward Stage 3 (Accepted) and preserve customer retention.
-- **Test Required**: `test_funnel_counts_strictly_monotonic` verifies this inequality on seeded data, live mock runs, and empty states.
+### Data Inconsistencies:
+- Exposed in API as `funnel.data_inconsistencies` and `data_inconsistencies`.
+- Counts any record where an offer, acceptance, or recovery exists for a customer missing from an earlier upstream stage. Rendered as an alert badge in the UI only when $> 0$.
 
 ---
 

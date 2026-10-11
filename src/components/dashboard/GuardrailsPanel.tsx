@@ -123,7 +123,7 @@ export function GuardrailsPanel({
             </div>
           </div>
           <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 leading-tight">
-            Decisions where a discount proposal was rejected and reset to a full retry.
+            The code replaced the model&apos;s proposed action with a retry.
           </div>
         </div>
 
@@ -137,7 +137,7 @@ export function GuardrailsPanel({
             </div>
           </div>
           <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 leading-tight">
-            Decisions where customer keywords triggered an immediate handoff to human support.
+            Decisions where compliance or dispute keywords triggered an immediate handoff to human support.
           </div>
         </div>
 
@@ -151,7 +151,7 @@ export function GuardrailsPanel({
             </div>
           </div>
           <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 leading-tight">
-            Decisions where a verified fallback message was used instead of model output.
+            The model&apos;s wording was rejected and a safe template used.
           </div>
         </div>
       </div>

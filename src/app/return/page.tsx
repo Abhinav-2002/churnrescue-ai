@@ -77,11 +77,6 @@ function ReturnContent() {
             <p className="text-sm text-slate-600 dark:text-slate-300">
               Your subscription payment has been processed and your account is now fully recovered.
             </p>
-            {token && (
-              <p className="text-xs font-mono text-slate-400 dark:text-slate-500">
-                Order ID: {token}
-              </p>
-            )}
             <div className="pt-4 flex flex-col sm:flex-row gap-3 justify-center">
               <Link
                 href="/dashboard"

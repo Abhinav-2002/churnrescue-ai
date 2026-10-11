@@ -1,15 +1,34 @@
+// @vitest-environment jsdom
+import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, cleanup } from '@testing-library/react';
 import { getDb } from '../src/lib/db';
 import { GET as metricsGET } from '../src/app/api/dashboard/metrics/route';
 import { POST as messagePOST } from '../src/app/api/agent/message/route';
+import { POST as capturePOST } from '../src/app/api/offers/[offerId]/capture/route';
 import { resetRateLimitsForTests } from '../src/lib/rate-limit';
 import { AIMessage } from '@langchain/core/messages';
 import { ESCALATION_REASONS, mapEscalationSeverity, type EscalationReason } from '../src/lib/agent/guardrails';
+import { GuardrailsPanel } from '../src/components/dashboard/GuardrailsPanel';
+import { CustomersTable } from '../src/components/dashboard/CustomersTable';
+import { HumanQueuePanel } from '../src/components/dashboard/HumanQueuePanel';
+import { CustomerDrawer } from '../src/components/dashboard/CustomerDrawer';
+import { StatusPill } from '../src/components/ui/StatusPill';
+import CancelPage from '../src/app/cancel/page';
+import ReturnPage from '../src/app/return/page';
+
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams('token=EC-TEST12345'),
+  useRouter: () => ({ push: vi.fn() })
+}));
 
 vi.mock('../src/lib/paypal', () => ({
   createOrder: vi.fn().mockResolvedValue({ id: 'mock_order_fixpack', status: 'CREATED' }),
   captureOrder: vi.fn().mockResolvedValue({ status: 201, body: { purchase_units: [{ payments: { captures: [{ amount: { value: '25.00' } }] } }] } }),
-  getOrder: vi.fn().mockResolvedValue({ status: 'COMPLETED' })
+  getOrder: vi.fn().mockResolvedValue({
+    status: 'COMPLETED',
+    purchase_units: [{ payments: { captures: [{ amount: { value: '25.00' } }] } }]
+  })
 }));
 
 vi.mock('@paypal/agent-toolkit/langchain', () => ({
@@ -64,6 +83,7 @@ describe('Fix Pack Tests: Dashboard Truthfulness', () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.restoreAllMocks();
     resetRateLimitsForTests();
   });
@@ -233,6 +253,102 @@ describe('Fix Pack Tests: Dashboard Truthfulness', () => {
     expect(mJson.policy_audit.total_audited).toBe(0);
   });
 
+  // FIX PACK 2 - Item 1: Escalation scope restricted to pending and accepted
+  it('Item 1: Escalation restricts superseded status to pending and accepted offers', async () => {
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO customers (id, name, email, plan_name, plan_price_cents, usage_percent, status)
+      VALUES ('cust_scope', 'Scope Test', 'scope@test.com', 'Starter', 2500, 30, 'at_risk')
+    `).run();
+    db.prepare(`
+      INSERT INTO billing_events (id, customer_id, type, amount_cents, status)
+      VALUES ('bill_scope', 'cust_scope', 'renewal', 2500, 'failed')
+    `).run();
+
+    const pastCapturingAt = new Date(Date.now() - 150000).toISOString();
+
+    db.prepare(`
+      INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, status, capturing_at, paypal_order_id, expires_at)
+      VALUES ('off_capturing', 'cust_scope', 'bill_scope', 'partial_credit', 2500, 'capturing', ?, 'ord_capturing', '2099-01-01')
+    `).run(pastCapturingAt);
+
+    db.prepare(`
+      INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, status, expires_at)
+      VALUES ('off_needs_review', 'cust_scope', 'bill_scope', 'partial_credit', 2500, 'needs_review', '2099-01-01')
+    `).run();
+
+    db.prepare(`
+      INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, status, expires_at)
+      VALUES ('off_failed', 'cust_scope', 'bill_scope', 'partial_credit', 2500, 'failed', '2099-01-01')
+    `).run();
+
+    db.prepare(`
+      INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, status, expires_at)
+      VALUES ('off_declined', 'cust_scope', 'bill_scope', 'partial_credit', 2500, 'declined', '2099-01-01')
+    `).run();
+
+    db.prepare(`
+      INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, status, expires_at)
+      VALUES ('off_pend_1', 'cust_scope', 'bill_scope', 'partial_credit', 2500, 'pending', '2099-01-01')
+    `).run();
+
+    db.prepare(`
+      INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, status, expires_at)
+      VALUES ('off_acc_1', 'cust_scope', 'bill_scope', 'partial_credit', 2500, 'accepted', '2099-01-01')
+    `).run();
+
+    // Now escalate
+    mockLlmIntent = 'escalate';
+    const req = mockReq({
+      customerId: 'cust_scope',
+      billingEventId: 'bill_scope',
+      text: 'this is a chargeback'
+    });
+    const res = await messagePOST(req);
+    expect(res.status).toBe(200);
+
+    // Verify non-pending, non-accepted offers preserved their status
+    const oCapturing = db.prepare(`SELECT status FROM offers WHERE id = 'off_capturing'`).get() as any;
+    expect(oCapturing.status).toBe('capturing');
+
+    const oNeedsReview = db.prepare(`SELECT status FROM offers WHERE id = 'off_needs_review'`).get() as any;
+    expect(oNeedsReview.status).toBe('needs_review');
+
+    const oFailed = db.prepare(`SELECT status FROM offers WHERE id = 'off_failed'`).get() as any;
+    expect(oFailed.status).toBe('failed');
+
+    const oDeclined = db.prepare(`SELECT status FROM offers WHERE id = 'off_declined'`).get() as any;
+    expect(oDeclined.status).toBe('declined');
+
+    // Pending and accepted were superseded
+    const oPend = db.prepare(`SELECT status FROM offers WHERE id = 'off_pend_1'`).get() as any;
+    expect(oPend.status).toBe('superseded');
+
+    const oAcc = db.prepare(`SELECT status FROM offers WHERE id = 'off_acc_1'`).get() as any;
+    expect(oAcc.status).toBe('superseded');
+
+    // Escalated customer has NO pending or accepted offers
+    const openOffers = db.prepare(`
+      SELECT * FROM offers WHERE customer_id = 'cust_scope' AND status IN ('pending', 'accepted')
+    `).all();
+    expect(openOffers.length).toBe(0);
+
+    // Now reconcile finishes the recovery exactly once
+    const capRes1 = await capturePOST(mockReq({}, 'POST'), { params: { offerId: 'off_capturing' } });
+    expect(capRes1.status).toBe(200);
+    const capJson1 = await capRes1.json();
+    expect(capJson1.success).toBe(true);
+
+    const recCount = db.prepare(`SELECT COUNT(*) as c FROM recoveries WHERE customer_id = 'cust_scope'`).get() as any;
+    expect(recCount.c).toBe(1);
+
+    // Second reconcile call is idempotent
+    const capRes2 = await capturePOST(mockReq({}, 'POST'), { params: { offerId: 'off_capturing' } });
+    expect(capRes2.status).toBe(200);
+    const recCount2 = db.prepare(`SELECT COUNT(*) as c FROM recoveries WHERE customer_id = 'cust_scope'`).get() as any;
+    expect(recCount2.c).toBe(1);
+  });
+
   // Item 4: Funnel with confirmed pause and monotonic property
   it('Item 4: Funnel includes confirmed pause in accepted stage and maintains non-increasing monotonic property', async () => {
     const db = getDb();
@@ -331,5 +447,165 @@ describe('Fix Pack Tests: Dashboard Truthfulness', () => {
     const customerRow = mJson.customers.find((c: any) => c.id === 'c_retry');
     expect(customerRow).toBeTruthy();
     expect(customerRow.intervention).toBe('Retry payment');
+  });
+
+  // FIX PACK 2 - Item 5: Guardrail panel copy test
+  it('Item 5 (Fix Pack 2): Guardrail panel renders exactly the 4 real tiles with plain sentence descriptions and no raw enum names', () => {
+    const summary = {
+      pricing_adjustments: 3,
+      blocked_suggestions: 13,
+      escalated_by_keyword: 2,
+      template_enforced: 1,
+      total_checks: 19,
+      latest_clamp_summary: 'Model proposed 50%, code allowed 20%'
+    };
+    render(<GuardrailsPanel summary={summary} audit={{ total_audited: 5, outside_policy_count: 0, violating_offer_ids: [] }} />);
+
+    expect(screen.getByText('Discount Capped')).toBeTruthy();
+    expect(screen.getByText('Forced Retry')).toBeTruthy();
+    expect(screen.getByText('Keyword Escalation')).toBeTruthy();
+    expect(screen.getByText('Template Used')).toBeTruthy();
+
+    expect(screen.getByText("Decisions where a proposed discount was lowered to stay within policy limits.")).toBeTruthy();
+    expect(screen.getByText("The code replaced the model's proposed action with a retry.")).toBeTruthy();
+    expect(screen.getByText("Decisions where compliance or dispute keywords triggered an immediate handoff to human support.")).toBeTruthy();
+    expect(screen.getByText("The model's wording was rejected and a safe template used.")).toBeTruthy();
+
+    expect(screen.getByText('19 checks')).toBeTruthy();
+
+    // No raw internal enum names rendered in the UI
+    expect(screen.queryByText(/pricing_adjustments/i)).toBeNull();
+    expect(screen.queryByText(/blocked_suggestions/i)).toBeNull();
+    expect(screen.queryByText(/escalated_by_keyword/i)).toBeNull();
+    expect(screen.queryByText(/template_enforced/i)).toBeNull();
+    expect(screen.queryByText(/ladder_limited/i)).toBeNull();
+    expect(screen.queryByText(/retry_forced/i)).toBeNull();
+  });
+
+  // FIX PACK 2 - Item 6: Funnel nested sets & data inconsistencies test
+  it('Item 6 (Fix Pack 2): Funnel stages are nested sets with no min/clamping, and data_inconsistencies reports orphaned records', async () => {
+    const db = getDb();
+    // Deliberately inconsistent customer: recovery exists with billing event NOT in failed/recovered/paused
+    db.prepare(`
+      INSERT INTO customers (id, name, email, plan_name, plan_price_cents, usage_percent, status)
+      VALUES ('c_orphan', 'Orphan User', 'orphan@test.com', 'Starter', 2500, 30, 'recovered')
+    `).run();
+    db.prepare(`
+      INSERT INTO billing_events (id, customer_id, type, amount_cents, status)
+      VALUES ('b_orphan', 'c_orphan', 'renewal', 2500, 'disputed')
+    `).run();
+    db.prepare(`
+      INSERT INTO recoveries (id, customer_id, billing_event_id, original_amount_cents, recovered_amount_cents, paypal_order_id)
+      VALUES ('rec_orphan', 'c_orphan', 'b_orphan', 2500, 2000, 'order_orphan')
+    `).run();
+
+    const mRes = await metricsGET(mockReq());
+    const mJson = await (mRes as Response).json();
+
+    // Nested sets means:
+    // Stage 1 (failed renewal customers): 0
+    // Stage 2 (offered within failed): 0
+    // Stage 3 (accepted within offered): 0
+    // Stage 4 (recovered within accepted): 0
+    // Monotonicity holds strictly: 0 >= 0 >= 0 >= 0 with NO clamping/min
+    expect(mJson.funnel.failed).toBe(0);
+    expect(mJson.funnel.offered).toBe(0);
+    expect(mJson.funnel.accepted).toBe(0);
+    expect(mJson.funnel.paid).toBe(0);
+
+    // data_inconsistencies detects the orphaned recovery
+    expect(mJson.funnel.data_inconsistencies).toBe(1);
+  });
+
+  // FIX PACK 2 - Item 7: Status and intervention capitalization, and (UTC) on every time column header
+  it('Item 7 (Fix Pack 2): Status and intervention capitalization, Retry payment, and (UTC) on every time column header', () => {
+    // 1. Status capitalization
+    const { container: s1 } = render(<StatusPill status="healthy" />);
+    expect(s1.textContent).toBe('Healthy');
+    cleanup();
+    const { container: s2 } = render(<StatusPill status="at_risk" />);
+    expect(s2.textContent).toBe('At Risk');
+    cleanup();
+    const { container: s3 } = render(<StatusPill status="recovered" />);
+    expect(s3.textContent).toBe('Recovered');
+    cleanup();
+    const { container: s4 } = render(<StatusPill status="paused" />);
+    expect(s4.textContent).toBe('Paused');
+    cleanup();
+    const { container: s5 } = render(<StatusPill status="escalated" />);
+    expect(s5.textContent).toBe('Escalated');
+    cleanup();
+
+    const mockCustomer = {
+      id: 'c_test',
+      name: 'Test Customer',
+      plan: 'Pro',
+      price_cents: 5000,
+      usage_percent: 45,
+      status: 'at_risk',
+      last_action: 'retry',
+      last_action_at: '2026-10-11T10:00:00Z',
+      failed_amount_cents: 5000,
+      recovered_amount_cents: 0,
+      intervention: 'Retry payment',
+      updated_at: '2026-10-11T10:00:00Z'
+    };
+
+    // 2. CustomersTable has (UTC) header
+    render(<CustomersTable customers={[mockCustomer as any]} />);
+    expect(screen.getByText(/Updated \(UTC\)/i)).toBeTruthy();
+    cleanup();
+
+    // 3. HumanQueuePanel has (UTC) header
+    const mockQueueItem = {
+      customer_id: 'c_esc',
+      name: 'Escalated Customer',
+      reason_category: 'chargeback',
+      severity: 'High' as const,
+      failed_amount_cents: 5000,
+      created_at: '2026-10-11T10:00:00Z'
+    };
+    render(<HumanQueuePanel queue={[mockQueueItem]} />);
+    expect(screen.getByText(/Escalated \(UTC\)/i)).toBeTruthy();
+    cleanup();
+
+    // 4. CustomerDrawer has (UTC) in timestamps
+    render(
+      <CustomerDrawer
+        customerId="c_test"
+        customer={mockCustomer as any}
+        decisions={[{
+          customer_id: 'c_test',
+          action: 'retry',
+          proposed_discount_percent: 0,
+          approved_discount_percent: 0,
+          guardrail_category: null,
+          ladder_step: null,
+          created_at: '2026-10-11T10:00:00Z'
+        }]}
+        isOpen={true}
+        onClose={() => {}}
+      />
+    );
+    expect(screen.getAllByText(/UTC/i).length).toBeGreaterThanOrEqual(1);
+    cleanup();
+  });
+
+  // FIX PACK 2 - Item 8: Cancel and return routes test
+  it('Item 8 (Fix Pack 2): /cancel and /return routes render cleanly and expose no PayPal IDs or tokens', () => {
+    // Cancel page
+    const { container: cancelContainer } = render(<CancelPage />);
+    expect(screen.getByText('Payment Cancelled')).toBeTruthy();
+    expect(cancelContainer.textContent).not.toContain('EC-');
+    expect(cancelContainer.textContent).not.toContain('ORDER-');
+    expect(cancelContainer.textContent).not.toContain('token');
+    cleanup();
+
+    // Return page
+    const { container: returnContainer } = render(<ReturnPage />);
+    expect(screen.getByText(/Verifying Payment|Payment Completed!|Unable to Complete Payment/i)).toBeTruthy();
+    expect(returnContainer.textContent).not.toContain('EC-TEST12345');
+    expect(returnContainer.textContent).not.toContain('Order ID:');
+    cleanup();
   });
 });

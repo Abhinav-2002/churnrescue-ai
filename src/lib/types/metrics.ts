@@ -63,6 +63,7 @@ export interface RecoveryFunnel {
   offered: number;
   accepted: number;
   paid: number;
+  data_inconsistencies?: number;
 }
 
 export interface GuardrailSummary {
@@ -147,5 +148,6 @@ export interface MetricsV2Response {
   offers: OfferMetricRow[];
   recoveries: RecoveryMetricRow[];
   decisions: DecisionMetricRow[];
+  data_inconsistencies?: number;
   llm_model?: string | null;
 }

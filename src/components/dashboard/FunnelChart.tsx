@@ -78,14 +78,26 @@ export function FunnelChart({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setViewTable(!viewTable)}
-          aria-label={viewTable ? 'Switch to funnel chart view' : 'Switch to accessible table view'}
-          className="text-xs px-2 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-        >
-          {viewTable ? 'View Funnel' : 'View Table'}
-        </button>
+        <div className="flex items-center gap-2">
+          {funnel?.data_inconsistencies !== undefined && funnel.data_inconsistencies > 0 && (
+            <span
+              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800"
+              title={`${funnel.data_inconsistencies} records detected outside normal upstream pipeline stages`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-600" aria-hidden="true" />
+              <span>{funnel.data_inconsistencies} data {funnel.data_inconsistencies === 1 ? 'inconsistency' : 'inconsistencies'}</span>
+            </span>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setViewTable(!viewTable)}
+            aria-label={viewTable ? 'Switch to funnel chart view' : 'Switch to accessible table view'}
+            className="text-xs px-2 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          >
+            {viewTable ? 'View Funnel' : 'View Table'}
+          </button>
+        </div>
       </CardHeader>
 
       {/* Active Stage Filter Chip */}

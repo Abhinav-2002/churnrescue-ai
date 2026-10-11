@@ -74,7 +74,8 @@ const responseSchema = z.object({
     failed: z.number(),
     offered: z.number(),
     accepted: z.number(),
-    paid: z.number()
+    paid: z.number(),
+    data_inconsistencies: z.number().optional()
   }),
   guardrail_summary: z.object({
     pricing_adjustments: z.number(),
@@ -387,17 +388,60 @@ export async function GET(req: Request) {
       })
     };
 
-    // 7. Funnel (with strict monotonic non-increasing property: failed >= offered >= accepted >= paid)
+    // 7. Funnel: Nested sets of unique customers (failed -> offered within failed -> accepted within offered -> recovered within accepted)
+    const failedCustomerRows = db.prepare(`
+      SELECT DISTINCT customer_id FROM billing_events
+      WHERE status IN ('failed', 'recovered', 'paused')
+    `).all() as { customer_id: string }[];
+    const failedCustomerIds = new Set(failedCustomerRows.map(r => r.customer_id));
+
+    const offeredCustomerRows = db.prepare(`
+      SELECT DISTINCT customer_id FROM offers
+      WHERE status != 'superseded'
+    `).all() as { customer_id: string }[];
+    const allOfferedCustomerIds = new Set(offeredCustomerRows.map(r => r.customer_id));
+    const offeredCustomerIds = new Set([...allOfferedCustomerIds].filter(id => failedCustomerIds.has(id)));
+
+    const acceptedOfferRows = db.prepare(`
+      SELECT DISTINCT customer_id FROM offers
+      WHERE status IN ('accepted', 'captured')
+    `).all() as { customer_id: string }[];
+    const pausedCustomerRows = db.prepare(`
+      SELECT DISTINCT id as customer_id FROM customers
+      WHERE status = 'paused'
+    `).all() as { customer_id: string }[];
+    const allAcceptedCustomerIds = new Set([
+      ...acceptedOfferRows.map(r => r.customer_id),
+      ...pausedCustomerRows.map(r => r.customer_id)
+    ]);
+    const acceptedCustomerIds = new Set([...allAcceptedCustomerIds].filter(id => offeredCustomerIds.has(id)));
+
+    const recoveredCustomerRows = db.prepare(`
+      SELECT DISTINCT customer_id FROM recoveries
+    `).all() as { customer_id: string }[];
+    const allRecoveredCustomerIds = new Set(recoveredCustomerRows.map(r => r.customer_id));
+    const recoveredCustomerIds = new Set([...allRecoveredCustomerIds].filter(id => acceptedCustomerIds.has(id)));
+
+    const funnelFailed = failedCustomerIds.size;
+    const funnelOffered = offeredCustomerIds.size;
+    const funnelAccepted = acceptedCustomerIds.size;
+    const funnelPaid = recoveredCustomerIds.size;
+
     const totalFailedRaw = (db.prepare(`SELECT COUNT(*) as c FROM billing_events
       WHERE status IN ('failed', 'recovered', 'paused')`).get() as any).c;
     const totalPaidRaw = (db.prepare(`SELECT COUNT(*) as c FROM recoveries`).get() as any).c;
-    const totalAcceptedRaw = (db.prepare(`SELECT COUNT(*) as c FROM offers WHERE status IN ('accepted', 'captured')`).get() as any).c;
-    const totalOfferedRaw = (db.prepare(`SELECT COUNT(*) as c FROM offers WHERE status != 'superseded'`).get() as any).c;
 
-    const funnelPaid = totalPaidRaw;
-    const funnelAccepted = Math.max(totalAcceptedRaw, funnelPaid);
-    const funnelOffered = Math.max(totalOfferedRaw, funnelAccepted);
-    const funnelFailed = Math.max(totalFailedRaw, funnelOffered);
+    // Detect data inconsistencies: any offer, accepted offer, or recovery for a customer missing from an earlier stage
+    let dataInconsistencies = 0;
+    for (const id of allRecoveredCustomerIds) {
+      if (!acceptedCustomerIds.has(id)) dataInconsistencies++;
+    }
+    for (const id of allAcceptedCustomerIds) {
+      if (!offeredCustomerIds.has(id)) dataInconsistencies++;
+    }
+    for (const id of allOfferedCustomerIds) {
+      if (!failedCustomerIds.has(id)) dataInconsistencies++;
+    }
 
     // 8. Range Totals & Previous-Period Calculations
     const currFailedRow = db.prepare(`
@@ -648,7 +692,8 @@ export async function GET(req: Request) {
         failed: funnelFailed,
         offered: funnelOffered,
         accepted: funnelAccepted,
-        paid: funnelPaid
+        paid: funnelPaid,
+        data_inconsistencies: dataInconsistencies
       },
       guardrail_summary: {
         pricing_adjustments: pricingAdjustments,

@@ -115,7 +115,7 @@ export function HumanQueuePanel({
                 <th scope="col" className="p-3">Customer</th>
                 <th scope="col" className="p-3">Reason</th>
                 <th scope="col" className="p-3">Severity</th>
-                <th scope="col" className="p-3">Waiting (UTC)</th>
+                <th scope="col" className="p-3">Escalated (UTC)</th>
                 <th scope="col" className="p-3 text-right">Amount</th>
                 <th scope="col" className="p-3 text-right">Action</th>
               </tr>

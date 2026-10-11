@@ -31,6 +31,7 @@ describe('Defect 4: Double Accept Concurrency', () => {
   beforeEach(() => {
     resetDb();
     resetRateLimitsForTests();
+    vi.mocked(paypal.createOrder).mockResolvedValue({ id: 'mock_order_123', status: 'CREATED' });
   });
 
   afterEach(() => {

@@ -65,12 +65,12 @@ Metrics are evaluated over two equal-length periods based on UTC time:
 ---
 
 ### 2.4 Recovery Funnel (`funnel`)
-- **Stage 1 (Failed)**: Count of unique `billing_events` with `status = 'failed'`.
-- **Stage 2 (Offered)**: Count of unique non-superseded `offers` (`status != 'superseded'`).
-- **Stage 3 (Accepted)**: Count of `offers` with `status IN ('accepted', 'captured')` (includes accepted partial credits, downgrades, confirmed pauses, and captured payments; stated on the dashboard under the stage name).
-- **Stage 4 (Paid)**: Count of completed `recoveries`.
-- **Monotonic Invariant**: Guaranteed non-increasing across stages:
-  $$\text{Failed} \ge \text{Offered} \ge \text{Accepted} \ge \text{Paid}$$
+- Stages are defined as **nested sets of unique customers**, ensuring monotonicity ($\text{Failed} \ge \text{Offered} \ge \text{Accepted} \ge \text{Paid}$) holds strictly by construction without clamping or artificial `Math.min/max`:
+  - **Stage 1 (Failed Renewal Customers - `failed`)**: Count of unique customers who experienced a billing failure (`status IN ('failed', 'recovered', 'paused')`).
+  - **Stage 2 (Interventions Offered - `offered`)**: Count of unique customers within Stage 1 who received an active/non-superseded offer (`status != 'superseded'`).
+  - **Stage 3 (Terms Accepted - `accepted`)**: Count of unique customers within Stage 2 who accepted terms or confirmed a pause (`status IN ('accepted', 'captured')` or customer status `'paused'`; stated on the dashboard under stage name as `(includes confirmed pauses)`).
+  - **Stage 4 (Recovered Customers - `paid`)**: Count of unique customers within Stage 3 who completed a successful recovery.
+- **Data Inconsistencies (`data_inconsistencies`)**: Count of anomalous records where an offer, accepted term, or recovery exists for a customer missing from an earlier upstream stage. Rendered as a badge in the UI only when $> 0$.
 
 ---
 
