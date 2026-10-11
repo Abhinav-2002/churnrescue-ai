@@ -71,7 +71,7 @@
 | **Customers** | Last Action Column | `customers.last_action` | Action descriptor (e.g. `"Card updated"`, `"Discount offered"`, `"Account paused"`) | `"None"` | `test_customers_table_last_action` |
 | **Customers** | Failed Amount Column | `SUM(billing_events.amount_cents)` WHERE status = 'failed' | Customer's total failed amount | `"$0.00"` | `test_customers_table_failed_amount` |
 | **Customers** | Recovered Amount Column| `SUM(recoveries.recovered_amount_cents)` | Customer's total recovered amount, or `"-"` if 0 | `"-"` | `test_customers_table_recovered_amount` |
-| **Customers** | Intervention Column | Latest offer kind or action pill | Pill indicating intervention: `"Card Swap"`, `"Discount (20%)"`, `"Pause"`, `"Escalate"` | `"-"` | `test_customers_table_intervention_pill` |
+| **Customers** | Intervention Column | Latest offer kind or action pill | Pill indicating intervention: `"Retry payment"`, `"Discount"`, `"Pause"`, `"Escalate"` | `"-"` | `test_customers_table_intervention_pill` |
 | **Customers** | Updated Column | `customers.last_action_at` or `created_at` | Formatted local date and time of last interaction | `"--"` | `test_customers_table_updated_timestamp` |
 | **Customers** | Pagination Controls | Page buttons (Previous, Next, page numbers) | Paginates customer list at 25 rows per page | 1 page | `test_customers_table_pagination_25_rows` |
 | **Customers** | Row Click / Drawer | Row click handler `openDrawer(customer.id)` | Opens slide-over drawer displaying chronological decision timeline | N/A | `test_customers_table_row_click_opens_drawer` |
@@ -176,7 +176,7 @@ Every card displays: Current Period Value, Change vs Previous Period (Arrow + Si
 
 - **Data Source**: Every customer's **LATEST decision** recorded in `agent_actions` (grouped by `customer_id` ORDER BY `created_at DESC LIMIT 1`).
 - **Categories**:
-  1. `Card Swap / Retry`: `action = 'retry'`
+  1. `Retry payment`: `action = 'retry'`
   2. `Discount Applied`: `action = 'partial_credit'`
   3. `Downgrade Plan`: `action = 'downgrade'`
   4. `Pause Account`: `action = 'pause'`
@@ -288,7 +288,7 @@ Based on `src/lib/agent/guardrails.ts:37-44` and `src/lib/agent/guardrails.ts:60
 5. **Last Action**: Enumerated descriptor (`"Card updated"`, `"Discount offered"`, `"Account paused"`, `"Escalated to human"`).
 6. **Failed Amount**: Formatted currency with `tabular-nums`.
 7. **Recovered Amount**: Formatted currency with `tabular-nums` or `"-"`.
-8. **Intervention**: Pill (`"Card Swap"`, `"Discount (20%)"`, `"Pause"`, `"Escalate"`).
+8. **Intervention**: Pill (`"Retry payment"`, `"Discount"`, `"Pause"`, `"Escalate"`).
 9. **Updated**: Local time timestamp (`"Oct 26, 2:01 PM"`).
 
 ### Table Controls & Pagination:

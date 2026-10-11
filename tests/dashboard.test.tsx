@@ -259,7 +259,7 @@ describe('Checkpoint D — Dashboard Panels Component Tests', () => {
       expect(screen.getByText('10')).toBeTruthy();
       expect(screen.getByText('Interventions')).toBeTruthy();
 
-      expect(screen.getByText('Card Swap / Retry')).toBeTruthy();
+      expect(screen.getByText('Retry payment')).toBeTruthy();
       expect(screen.getByText('Discount Applied')).toBeTruthy();
       expect(screen.getByText('Plan Downgrade')).toBeTruthy();
       expect(screen.getByText('Account Paused')).toBeTruthy();
@@ -270,7 +270,7 @@ describe('Checkpoint D — Dashboard Panels Component Tests', () => {
       const onSelectAction = vi.fn();
       render(<DonutChart mix={mockMix} onSelectAction={onSelectAction} />);
 
-      const retryBtn = screen.getByRole('button', { name: 'Card Swap / Retry: 4 customers (40%)' });
+      const retryBtn = screen.getByRole('button', { name: 'Retry payment: 4 customers (40%)' });
       fireEvent.click(retryBtn);
       expect(onSelectAction).toHaveBeenCalledWith('retry');
     });
@@ -293,7 +293,7 @@ describe('Checkpoint D — Dashboard Panels Component Tests', () => {
       fireEvent.click(toggleBtn);
 
       expect(screen.getByText('Intervention Mix Breakdown Table')).toBeTruthy();
-      expect(screen.getByText('Card Swap / Retry')).toBeTruthy();
+      expect(screen.getByText('Retry payment')).toBeTruthy();
     });
   });
 

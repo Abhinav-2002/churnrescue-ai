@@ -66,8 +66,16 @@ export function StatusPill({ status, label, className = '' }: StatusPillProps) {
       );
       break;
 
+    case 'healthy':
+      text = text || 'Healthy';
+      bgFg = 'bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700';
+      icon = (
+        <span className="w-1.5 h-1.5 mr-1.5 rounded-full bg-emerald-500 shrink-0" aria-hidden="true" />
+      );
+      break;
+
     default:
-      text = text || status;
+      text = text || (status ? status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ') : '');
       bgFg = 'bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700';
       icon = (
         <span className="w-1.5 h-1.5 mr-1.5 rounded-full bg-current shrink-0" aria-hidden="true" />

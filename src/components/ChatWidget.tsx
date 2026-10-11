@@ -52,7 +52,7 @@ function PayPalWrapper({ orderId, offerId, onCaptureResult }: { orderId: string,
 }
 
 export function ChatWidget() {
-  const { isOpen, setIsOpen, customerId } = useChat();
+  const { isOpen, setIsOpen, customerId, refreshKey } = useChat();
   
   const [customer, setCustomer] = useState<any | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
@@ -73,6 +73,11 @@ export function ChatWidget() {
 
   const loadState = useCallback(async (cId: string) => {
     setLoading(true);
+    setSystemMsg(null);
+    setCustomer(null);
+    setMessages([]);
+    setOfferInfo({});
+    setNextStep('none');
     try {
       const res = await fetch(`/api/agent/state?customerId=${cId}`);
       if (!res.ok) throw new Error('State fetch failed');
@@ -85,7 +90,7 @@ export function ChatWidget() {
       const newOfferInfo: any = {};
       if (data.offerId) {
         newOfferInfo.offerId = data.offerId;
-        newOfferInfo.orderId = data.paypalOrderId;
+        newOfferInfo.orderId = data.orderId || data.paypalOrderId;
       }
       if (data.recoveredAmountCents !== undefined) {
         newOfferInfo.recoveredAmountCents = data.recoveredAmountCents;
@@ -122,21 +127,21 @@ export function ChatWidget() {
   }, [loadState]);
 
   useEffect(() => {
+    startAttempted.current = false;
     if (customerId && isOpen) {
-      const timer = setTimeout(() => {
-        loadState(customerId);
-      }, 0);
-      return () => clearTimeout(timer);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      loadState(customerId);
     }
-  }, [customerId, isOpen, loadState]);
+  }, [customerId, isOpen, refreshKey, loadState]);
 
   // Trigger startConversation if we loaded an at_risk customer with no messages
   useEffect(() => {
-    if (customer?.status === 'at_risk' && messages.length === 0 && !startAttempted.current) {
+    const targetId = customer?.id || customerId;
+    if (customer?.status === 'at_risk' && messages.length === 0 && !startAttempted.current && targetId) {
       startAttempted.current = true;
-      startConversation(customer.id);
+      startConversation(targetId);
     }
-  }, [customer, messages, startConversation]);
+  }, [customer, customerId, messages, startConversation]);
 
   async function sendMessage(text: string) {
     if (!text.trim() || !customerId) return;
@@ -153,7 +158,16 @@ export function ChatWidget() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      
+
+      if (data.nextStep) setNextStep(data.nextStep);
+      if (data.offerId && (data.orderId || data.paypalOrderId)) {
+        setOfferInfo(prev => ({
+          ...prev,
+          offerId: data.offerId,
+          orderId: data.orderId || data.paypalOrderId
+        }));
+      }
+
       await loadState(customerId);
     } catch(e) {
       setSystemMsg({ kind: 'error', text: 'Failed to send message.' });
@@ -167,15 +181,20 @@ export function ChatWidget() {
     setSystemMsg({ kind: 'success', text: 'Processing your pause request...' });
     if (!customerId) return;
     try {
-      await fetch('/api/agent/confirm-pause', {
+      const res = await fetch('/api/agent/confirm-pause', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customerId })
+        body: JSON.stringify({ customerId, offerId: offerInfo.offerId })
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to pause subscription');
+      }
       await loadState(customerId);
+      setNextStep('none');
       setSystemMsg({ kind: 'success', text: 'Your subscription has been paused successfully.' });
-    } catch(e) {
-      setSystemMsg({ kind: 'error', text: 'Failed to pause subscription.' });
+    } catch(e: any) {
+      setSystemMsg({ kind: 'error', text: e.message || 'Failed to pause subscription.' });
     }
   }
 

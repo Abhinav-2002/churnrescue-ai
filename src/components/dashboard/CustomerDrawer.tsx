@@ -155,8 +155,11 @@ export function CustomerDrawer({
                         <span className="font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
                           {d.action.replace('_', ' ')}
                         </span>
-                        <span className="font-mono text-slate-400">
-                          {new Date(d.created_at).toLocaleTimeString()}
+                        <span
+                          className="font-mono text-slate-400"
+                          title={`${new Date(d.created_at).toISOString().replace('T', ' ').slice(0, 19)} UTC`}
+                        >
+                          {new Date(d.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} UTC
                         </span>
                       </div>
 

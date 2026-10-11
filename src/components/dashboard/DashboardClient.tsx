@@ -265,7 +265,7 @@ export function DashboardClient() {
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
               <span>Model</span>
-              <span className="font-mono">Gemini 2.5</span>
+              <span className="font-mono">{data?.llm_model || 'Not configured'}</span>
             </div>
           </div>
         </div>
@@ -433,7 +433,7 @@ export function DashboardClient() {
 
           {/* 5. Performance Chart & Intervention Mix Row */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
+            <div className="lg:col-span-2 min-w-0">
               <PerformanceChart
                 data={data?.daily_series}
                 rangeDays={rangeDays}
@@ -441,7 +441,7 @@ export function DashboardClient() {
                 loading={loading && !data}
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <DonutChart
                 mix={data?.intervention_mix}
                 activeFilter={filterAction}
@@ -453,17 +453,21 @@ export function DashboardClient() {
 
           {/* 6. Funnel & Guardrails Row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <FunnelChart
-              funnel={data?.funnel}
-              activeStage={filterStage}
-              onSelectStage={setFilterStage}
-              loading={loading && !data}
-            />
-            <GuardrailsPanel
-              summary={data?.guardrail_summary}
-              audit={data?.policy_audit}
-              loading={loading && !data}
-            />
+            <div className="min-w-0">
+              <FunnelChart
+                funnel={data?.funnel}
+                activeStage={filterStage}
+                onSelectStage={setFilterStage}
+                loading={loading && !data}
+              />
+            </div>
+            <div className="min-w-0">
+              <GuardrailsPanel
+                summary={data?.guardrail_summary}
+                audit={data?.policy_audit}
+                loading={loading && !data}
+              />
+            </div>
           </div>
 
           {/* 7. Needs a Human Queue */}

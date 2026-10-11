@@ -41,7 +41,7 @@ export function DonutChart({
   const total = mix?.total_interventions ?? 0;
 
   const slicesData: SliceConfig[] = [
-    { key: 'retry', label: 'Card Swap / Retry', color: '#10b981', count: mix?.retry ?? 0 },
+    { key: 'retry', label: 'Retry payment', color: '#10b981', count: mix?.retry ?? 0 },
     { key: 'credit', label: 'Discount Applied', color: '#3b82f6', count: mix?.credit ?? 0 },
     { key: 'downgrade', label: 'Plan Downgrade', color: '#8b5cf6', count: mix?.downgrade ?? 0 },
     { key: 'pause', label: 'Account Paused', color: '#f59e0b', count: mix?.pause ?? 0 },
@@ -80,7 +80,7 @@ export function DonutChart({
   });
 
   return (
-    <Card className="min-h-[360px] flex flex-col justify-between">
+    <Card className="min-h-[360px] flex flex-col justify-between overflow-hidden">
       <CardHeader className="flex items-center justify-between">
         <div>
           <CardTitle>Intervention Mix</CardTitle>
@@ -145,8 +145,8 @@ export function DonutChart({
         </div>
       ) : (
         /* Donut SVG & Legend */
-        <div className="p-4 flex flex-col sm:flex-row items-center gap-6">
-          <div className="relative w-44 h-44 shrink-0 mx-auto">
+        <div className="pt-2 px-1 flex flex-col sm:flex-row lg:flex-col items-center gap-4 sm:gap-6 lg:gap-4 w-full min-w-0">
+          <div className="relative w-36 h-36 sm:w-40 sm:h-40 lg:w-36 lg:h-36 shrink-0 mx-auto">
             <svg viewBox="0 0 42 42" className="w-full h-full transform -rotate-90 overflow-visible" role="img" aria-label="Intervention Mix Donut Chart">
               {processedSlices.map((slice) => {
                 if (slice.count === 0) return null;
@@ -195,7 +195,7 @@ export function DonutChart({
           </div>
 
           {/* Interactive Legend */}
-          <div className="flex-1 w-full space-y-2">
+          <div className="flex-1 w-full space-y-1.5 min-w-0">
             {slicesData.map((d) => {
               const pct = total > 0 ? (d.count / total) * 100 : 0;
               const isSelected = activeFilter === d.key;
@@ -212,11 +212,11 @@ export function DonutChart({
                   }`}
                   aria-pressed={isSelected}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: d.color }} aria-hidden="true" />
-                    <span>{d.label}</span>
+                    <span className="truncate">{d.label}</span>
                   </div>
-                  <div className="flex items-center gap-3 font-mono">
+                  <div className="flex items-center gap-2.5 shrink-0 font-mono ml-2">
                     <span className="font-semibold tabular-nums">{d.count}</span>
                     <span className="text-slate-400 w-8 text-right tabular-nums">{pct.toFixed(0)}%</span>
                   </div>

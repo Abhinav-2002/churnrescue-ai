@@ -5,6 +5,7 @@ import { getDb } from '@/lib/db';
 import crypto from 'crypto';
 import { rateLimit, LIMITS } from '@/lib/rate-limit';
 import { nextLowerPlan } from '@/lib/plans';
+import { EscalationReason, mapEscalationSeverity } from '@/lib/agent/guardrails';
 
 // Pure guardrail policy constants matching src/lib/agent/guardrails.ts
 const MIN_CHARGE_CENTS = 100;
@@ -134,13 +135,18 @@ const responseSchema = z.object({
     approved_discount_percent: z.number().nullable(),
     guardrail_category: z.string().nullable(),
     ladder_step: z.number().nullable()
-  }))
+  })),
+  llm_model: z.string().nullable().optional()
 });
 
 function getGuardrailCategory(details: any): string | null {
+  if (details.reason_category && ['dispute', 'chargeback', 'legal', 'fraud', 'human_request', 'anger'].includes(details.reason_category)) {
+    return 'escalated_by_keyword';
+  }
   const c = details?.clamps || [];
   const s = Array.isArray(c) ? c.join(' ') : (c || '');
-  if (s.includes('escalate') || s.includes('cancel intent >= 60 usage twice')) return 'escalated_by_keyword';
+  if (s.includes('forced escalate by keyword rule')) return 'escalated_by_keyword';
+  if (s.includes('cancel intent >= 60 usage twice') || s.includes('ladder exhausted')) return 'retry_forced';
   if (s.includes('intent') || s.includes('invalid') || s.includes('not allowed')) return 'retry_forced';
   
   if (details.proposed_discount_percent != null && details.approved_discount_percent != null) {
@@ -153,16 +159,18 @@ function getGuardrailCategory(details: any): string | null {
   return null;
 }
 
-export function classifyEscalationReason(clamps: string[]): { reason: string; severity: 'High' | 'Medium' | 'Low' } {
+export function classifyEscalationReason(clamps: string[]): { reason: EscalationReason; severity: 'High' | 'Medium' | 'Low' } {
   const str = clamps.join(' ').toLowerCase();
-  if (str.includes('dispute')) return { reason: 'dispute', severity: 'High' };
-  if (str.includes('chargeback')) return { reason: 'chargeback', severity: 'High' };
-  if (str.includes('legal')) return { reason: 'legal', severity: 'High' };
-  if (str.includes('fraud')) return { reason: 'fraud', severity: 'High' };
-  if (str.includes('human')) return { reason: 'human_requested', severity: 'Medium' };
-  if (str.includes('anger')) return { reason: 'frustration', severity: 'Medium' };
-  if (str.includes('cancel intent >= 60 usage twice')) return { reason: 'repeat_cancel', severity: 'Low' };
-  return { reason: 'general_escalation', severity: 'Medium' };
+  let reason: EscalationReason = 'other';
+  if (str.includes('dispute')) reason = 'dispute';
+  else if (str.includes('chargeback')) reason = 'chargeback';
+  else if (str.includes('legal')) reason = 'legal';
+  else if (str.includes('fraud')) reason = 'fraud';
+  else if (str.includes('human')) reason = 'human_request';
+  else if (str.includes('anger')) reason = 'anger';
+  else if (str.includes('cancel intent >= 60 usage twice')) reason = 'repeat_cancel';
+  else if (str.includes('ladder') || str.includes('pushback')) reason = 'repeat_pushback';
+  return { reason, severity: mapEscalationSeverity(reason) };
 }
 
 export function auditOffer(offer: {
@@ -246,26 +254,36 @@ export async function GET(req: Request) {
         c.usage_percent, c.status, c.created_at,
         (SELECT action FROM agent_actions WHERE customer_id = c.id ORDER BY created_at DESC LIMIT 1) as last_action,
         (SELECT created_at FROM agent_actions WHERE customer_id = c.id ORDER BY created_at DESC LIMIT 1) as last_action_at,
-        COALESCE((SELECT SUM(amount_cents) FROM billing_events WHERE customer_id = c.id AND status IN ('failed', 'recovered')), 0) as failed_amount_cents,
+        COALESCE((SELECT SUM(amount_cents) FROM billing_events WHERE customer_id = c.id AND status IN ('failed', 'recovered', 'paused')), 0) as failed_amount_cents,
         COALESCE((SELECT SUM(recovered_amount_cents) FROM recoveries WHERE customer_id = c.id), 0) as recovered_amount_cents
       FROM customers c
       LIMIT 200
     `).all() as any[];
 
-    const customers = customersRaw.map(c => ({
-      id: c.id,
-      name: c.name,
-      plan: c.plan,
-      price_cents: c.price_cents,
-      usage_percent: c.usage_percent,
-      status: c.status,
-      last_action: c.last_action,
-      last_action_at: c.last_action_at,
-      failed_amount_cents: c.failed_amount_cents,
-      recovered_amount_cents: c.recovered_amount_cents,
-      intervention: c.last_action === 'partial_credit' ? 'Discount' : (c.last_action ? c.last_action.replace('_', ' ') : null),
-      updated_at: c.last_action_at || c.created_at || new Date().toISOString()
-    }));
+    const customers = customersRaw.map(c => {
+      let intervention: string | null = null;
+      if (c.last_action === 'retry') intervention = 'Retry payment';
+      else if (c.last_action === 'partial_credit') intervention = 'Discount';
+      else if (c.last_action === 'pause') intervention = 'Pause';
+      else if (c.last_action === 'escalate') intervention = 'Escalate';
+      else if (c.last_action === 'downgrade') intervention = 'Downgrade';
+      else if (c.last_action) intervention = c.last_action.replace(/_/g, ' ');
+
+      return {
+        id: c.id,
+        name: c.name,
+        plan: c.plan,
+        price_cents: c.price_cents,
+        usage_percent: c.usage_percent,
+        status: c.status,
+        last_action: c.last_action,
+        last_action_at: c.last_action_at,
+        failed_amount_cents: c.failed_amount_cents,
+        recovered_amount_cents: c.recovered_amount_cents,
+        intervention,
+        updated_at: c.last_action_at || c.created_at || new Date().toISOString()
+      };
+    });
 
     // 2. Offers (Capped at 200)
     const offers = db.prepare(`
@@ -317,7 +335,7 @@ export async function GET(req: Request) {
     const seriesFailed = db.prepare(`
       SELECT DATE(created_at) as date, SUM(amount_cents) as total
       FROM billing_events
-      WHERE status IN ('failed', 'recovered')
+      WHERE status IN ('failed', 'recovered', 'paused')
       GROUP BY DATE(created_at)
     `).all() as any[];
 
@@ -371,26 +389,21 @@ export async function GET(req: Request) {
 
     // 7. Funnel (with strict monotonic non-increasing property: failed >= offered >= accepted >= paid)
     const totalFailedRaw = (db.prepare(`SELECT COUNT(*) as c FROM billing_events
-      WHERE status IN ('failed', 'recovered')`).get() as any).c;
+      WHERE status IN ('failed', 'recovered', 'paused')`).get() as any).c;
     const totalPaidRaw = (db.prepare(`SELECT COUNT(*) as c FROM recoveries`).get() as any).c;
-    const totalAcceptedRaw = Math.max(
-      (db.prepare(`SELECT COUNT(*) as c FROM offers WHERE status = 'accepted'`).get() as any).c,
-      totalPaidRaw
-    );
-    const totalOfferedRaw = Math.max(
-      (db.prepare(`SELECT COUNT(*) as c FROM offers WHERE status != 'superseded'`).get() as any).c,
-      totalAcceptedRaw
-    );
-    const funnelFailed = totalFailedRaw;
-    const funnelOffered = totalOfferedRaw;
-    const funnelAccepted = totalAcceptedRaw;
+    const totalAcceptedRaw = (db.prepare(`SELECT COUNT(*) as c FROM offers WHERE status IN ('accepted', 'captured')`).get() as any).c;
+    const totalOfferedRaw = (db.prepare(`SELECT COUNT(*) as c FROM offers WHERE status != 'superseded'`).get() as any).c;
+
     const funnelPaid = totalPaidRaw;
+    const funnelAccepted = Math.max(totalAcceptedRaw, funnelPaid);
+    const funnelOffered = Math.max(totalOfferedRaw, funnelAccepted);
+    const funnelFailed = Math.max(totalFailedRaw, funnelOffered);
 
     // 8. Range Totals & Previous-Period Calculations
     const currFailedRow = db.prepare(`
       SELECT COALESCE(SUM(amount_cents), 0) as total, COUNT(*) as count
       FROM billing_events
-      WHERE status IN ('failed', 'recovered') AND created_at >= ?
+      WHERE status IN ('failed', 'recovered', 'paused') AND created_at >= ?
     `).get(currStartIso) as any;
     
     const currRecoveredRow = db.prepare(`
@@ -402,7 +415,7 @@ export async function GET(req: Request) {
     const prevFailedRow = db.prepare(`
       SELECT COALESCE(SUM(amount_cents), 0) as total, COUNT(*) as count
       FROM billing_events
-      WHERE status IN ('failed', 'recovered') AND created_at >= ? AND created_at < ?
+      WHERE status IN ('failed', 'recovered', 'paused') AND created_at >= ? AND created_at < ?
     `).get(prevStartIso, currStartIso) as any;
 
     const prevRecoveredRow = db.prepare(`
@@ -534,8 +547,16 @@ export async function GET(req: Request) {
       .map(r => {
         let details: any = {};
         try { details = JSON.parse(r.details_json); } catch(e) {}
-        const clamps: string[] = Array.isArray(details.clamps) ? details.clamps : [];
-        const { reason, severity } = classifyEscalationReason(clamps);
+        let reason = details.reason_category;
+        let severity = details.severity;
+        if (!reason) {
+          const clamps: string[] = Array.isArray(details.clamps) ? details.clamps : [];
+          const classified = classifyEscalationReason(clamps);
+          reason = classified.reason;
+          severity = classified.severity;
+        } else if (!severity) {
+          severity = mapEscalationSeverity(reason);
+        }
         return {
           customer_id: r.customer_id,
           name: r.name,
@@ -546,9 +567,11 @@ export async function GET(req: Request) {
         };
       })
       .sort((a, b) => {
-        const rank = { High: 0, Medium: 1, Low: 2 };
-        if (rank[a.severity] !== rank[b.severity]) {
-          return rank[a.severity] - rank[b.severity];
+        const rank: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
+        const rankA = rank[a.severity] ?? 1;
+        const rankB = rank[b.severity] ?? 1;
+        if (rankA !== rankB) {
+          return rankA - rankB;
         }
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       })
@@ -644,7 +667,8 @@ export async function GET(req: Request) {
       customers,
       offers,
       recoveries,
-      decisions
+      decisions,
+      llm_model: process.env.LLM_MODEL || null
     });
 
     const jsonStr = JSON.stringify(payload);

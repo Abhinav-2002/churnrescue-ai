@@ -319,7 +319,7 @@ export function CustomersTable({
                   className="p-3 cursor-pointer hover:text-slate-900 dark:hover:text-white"
                   onClick={() => handleSort('updated')}
                 >
-                  Updated {sortField === 'updated' ? (sortAsc ? '▲' : '▼') : ''}
+                  Updated (UTC) {sortField === 'updated' ? (sortAsc ? '▲' : '▼') : ''}
                 </th>
               </tr>
             </thead>
@@ -414,12 +414,17 @@ export function CustomersTable({
                       )}
                     </td>
 
-                    {/* Updated Local Time */}
-                    <td className="p-3 whitespace-nowrap text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                    {/* Updated UTC Time */}
+                    <td
+                      className="p-3 whitespace-nowrap text-slate-500 dark:text-slate-400 font-mono text-[11px]"
+                      title={`${new Date(row.updated_at || row.last_action_at || 0).toISOString().replace('T', ' ').slice(0, 19)} UTC`}
+                    >
                       {new Date(row.updated_at || row.last_action_at || 0).toLocaleTimeString([], {
                         hour: '2-digit',
                         minute: '2-digit',
-                      })}
+                        timeZone: 'UTC',
+                      })}{' '}
+                      UTC
                     </td>
                   </tr>
                 );

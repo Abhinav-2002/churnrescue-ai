@@ -8,7 +8,7 @@ export default function AdminClientPage({ customers, events }: { customers: any[
   const router = useRouter();
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const { setCustomerId, setIsOpen } = useChat();
+  const { setCustomerId, setIsOpen, openChatForCustomer } = useChat();
 
   const simulateFailure = async (customerId: string) => {
     setLoadingId(customerId);
@@ -23,9 +23,8 @@ export default function AdminClientPage({ customers, events }: { customers: any[
       if (!res.ok) {
         setErrorMsg(`Error: ${data.error} (Status: ${data.status}, Issue: ${data.issue})`);
       } else {
-        // Open the chat right away
-        setCustomerId(customerId);
-        setIsOpen(true);
+        // Open the chat right away with fresh state
+        openChatForCustomer(customerId);
       }
       router.refresh();
     } catch (e: any) {
@@ -95,10 +94,7 @@ export default function AdminClientPage({ customers, events }: { customers: any[
                       {loadingId === c.id ? 'Simulating...' : 'Simulate Failure'}
                     </button>
                     <button
-                      onClick={() => {
-                        setCustomerId(c.id);
-                        setIsOpen(true);
-                      }}
+                      onClick={() => openChatForCustomer(c.id)}
                       className="border border-gray-300 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-50"
                     >
                       Open Widget

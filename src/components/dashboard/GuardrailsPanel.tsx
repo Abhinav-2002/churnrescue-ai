@@ -98,40 +98,60 @@ export function GuardrailsPanel({
       )}
 
       {/* Guardrail Metrics Grid */}
-      <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-        <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
-          <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
-            {summary?.pricing_adjustments ?? 0}
+      <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-center">
+        <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 flex flex-col justify-between">
+          <div>
+            <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
+              {summary?.pricing_adjustments ?? 0}
+            </div>
+            <div className="text-[11px] text-slate-700 dark:text-slate-300 mt-1 font-semibold">
+              Discount Capped
+            </div>
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium">
-            Discount Capped
-          </div>
-        </div>
-
-        <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
-          <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
-            {summary?.blocked_suggestions ?? 0}
-          </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium">
-            Forced Retry
+          <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 leading-tight">
+            Decisions where a proposed discount was lowered to stay within policy limits.
           </div>
         </div>
 
-        <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
-          <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
-            {summary?.escalated_by_keyword ?? 0}
+        <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 flex flex-col justify-between">
+          <div>
+            <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
+              {summary?.blocked_suggestions ?? 0}
+            </div>
+            <div className="text-[11px] text-slate-700 dark:text-slate-300 mt-1 font-semibold">
+              Forced Retry
+            </div>
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium">
-            Keyword Escalation
+          <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 leading-tight">
+            Decisions where a discount proposal was rejected and reset to a full retry.
           </div>
         </div>
 
-        <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
-          <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
-            {summary?.template_enforced ?? 0}
+        <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 flex flex-col justify-between">
+          <div>
+            <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
+              {summary?.escalated_by_keyword ?? 0}
+            </div>
+            <div className="text-[11px] text-slate-700 dark:text-slate-300 mt-1 font-semibold">
+              Keyword Escalation
+            </div>
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium">
-            Template Used
+          <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 leading-tight">
+            Decisions where customer keywords triggered an immediate handoff to human support.
+          </div>
+        </div>
+
+        <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 flex flex-col justify-between">
+          <div>
+            <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
+              {summary?.template_enforced ?? 0}
+            </div>
+            <div className="text-[11px] text-slate-700 dark:text-slate-300 mt-1 font-semibold">
+              Template Used
+            </div>
+          </div>
+          <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 leading-tight">
+            Decisions where a verified fallback message was used instead of model output.
           </div>
         </div>
       </div>
@@ -143,7 +163,7 @@ export function GuardrailsPanel({
           <span>{summary?.latest_clamp_summary || 'No adjustments required'}</span>
         </div>
         <div className="text-slate-500 dark:text-slate-400 font-mono tabular-nums text-[11px]">
-          Total Checks: {summary?.total_checks ?? 0}
+          {summary?.total_checks ?? 0} checks
         </div>
       </div>
     </Card>

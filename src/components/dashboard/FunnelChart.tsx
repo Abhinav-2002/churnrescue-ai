@@ -12,6 +12,7 @@ interface FunnelChartProps {
 interface FunnelStageConfig {
   id: 'failed' | 'offered' | 'accepted' | 'paid';
   label: string;
+  subtitle?: string;
   color: string;
   count: number;
 }
@@ -44,7 +45,7 @@ export function FunnelChart({
   const stages: FunnelStageConfig[] = [
     { id: 'failed', label: '1. Failed Billing Events', color: '#ef4444', count: funnel?.failed ?? 0 },
     { id: 'offered', label: '2. Interventions Offered', color: '#3b82f6', count: funnel?.offered ?? 0 },
-    { id: 'accepted', label: '3. Terms Accepted', color: '#f59e0b', count: funnel?.accepted ?? 0 },
+    { id: 'accepted', label: '3. Terms Accepted', subtitle: '(includes confirmed pauses)', color: '#f59e0b', count: funnel?.accepted ?? 0 },
     { id: 'paid', label: '4. Payments Captured', color: '#10b981', count: funnel?.paid ?? 0 },
   ];
 
@@ -122,8 +123,15 @@ export function FunnelChart({
                 return (
                   <tr key={stage.id} className="border-b border-slate-100 dark:border-slate-800/50">
                     <td className="p-2 flex items-center gap-2 font-medium">
-                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: stage.color }} aria-hidden="true" />
-                      <span>{stage.label}</span>
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: stage.color }} aria-hidden="true" />
+                      <div>
+                        <span>{stage.label}</span>
+                        {stage.subtitle && (
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-normal">
+                            {stage.subtitle}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="p-2 text-right font-mono tabular-nums font-semibold">{stage.count}</td>
                     <td className="p-2 text-right font-mono tabular-nums">{conv}%</td>
@@ -158,9 +166,16 @@ export function FunnelChart({
                 }`}
               >
                 <div className="flex justify-between items-center text-xs">
-                  <span className="font-semibold text-slate-700 dark:text-slate-300 group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                    {stage.label}
-                  </span>
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-slate-700 dark:text-slate-300 group-hover:text-blue-600 dark:group-hover:text-blue-400">
+                      {stage.label}
+                    </span>
+                    {stage.subtitle && (
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
+                        {stage.subtitle}
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-3 font-mono">
                     <span className="text-slate-400 dark:text-slate-500 tabular-nums">
                       {((stage.count / baseline) * 100).toFixed(0)}%

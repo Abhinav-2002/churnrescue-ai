@@ -2,7 +2,7 @@ import { ChatVertexAI } from '@langchain/google-vertexai';
 import { StateGraph, MessagesAnnotation, START, END, Annotation } from '@langchain/langgraph';
 import { getDb } from '../db';
 import { create_recovery_order, createOrderInternal } from './tools';
-import { Proposal, proposalSchema, validateProposal, ValidatedDecision, detectEscalation, checkMessageAmounts, CustomerContext, sanitizeReply } from './guardrails';
+import { Proposal, proposalSchema, validateProposal, ValidatedDecision, detectEscalation, checkMessageAmounts, CustomerContext, sanitizeReply, mapEscalationSeverity, EscalationReason } from './guardrails';
 import { formatDollars } from '../money';
 import { nextLowerPlan } from '../plans';
 
@@ -43,7 +43,7 @@ async function load_context(state: typeof GraphState.State) {
     plan_price_cents: customer.plan_price_cents,
     usage_percent: customer.usage_percent
   };
-  const offer = db.prepare(`SELECT id FROM offers WHERE customer_id = ? AND status = 'pending' ORDER BY rowid DESC LIMIT 1`).get(state.customerId) as any;
+  const offer = db.prepare(`SELECT id FROM offers WHERE customer_id = ? AND status IN ('pending', 'accepted') ORDER BY rowid DESC LIMIT 1`).get(state.customerId) as any;
   return { customerContext: context, activeOfferId: offer ? offer.id : null };
 }
 
@@ -103,11 +103,13 @@ async function validate_guardrails(state: typeof GraphState.State) {
   );
 
   if (state.intent === 'accept' && state.activeOfferId) {
-
     db.prepare(`UPDATE offers SET status = 'accepted', accepted_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'`).run(state.activeOfferId);
     const offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(state.activeOfferId) as any;
     if (offer) {
       validated.action = offer.kind;
+      validated.final_amount_cents = offer.amount_cents;
+      validated.discount_percent = offer.discount_percent;
+      validated.target_plan = offer.target_plan;
       if (offer.amount_cents > 0 && !offer.paypal_order_id) {
         await createOrderInternal(offer.id);
       }
@@ -247,6 +249,9 @@ Compose a polite response to the customer based on the action. If escalating, te
 
   if (state.decision || state.intent === 'escalate') {
     const actionName = state.decision?.action || 'escalate';
+    const reasonCategory: EscalationReason | null = state.decision?.reason_category || (actionName === 'escalate' ? 'other' : null);
+    const severity = reasonCategory ? mapEscalationSeverity(reasonCategory) : null;
+
     db.prepare(`
       INSERT INTO agent_actions (id, customer_id, billing_event_id, action, reasoning, details_json)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -256,7 +261,9 @@ Compose a polite response to the customer based on the action. If escalating, te
       clamps: state.decision?.clamps ?? [],
       template_used: templateUsed.used,
       template_reason: templateUsed.reason,
-      ladder_step: state.ladderStep ?? 0
+      ladder_step: state.ladderStep ?? 0,
+      reason_category: reasonCategory,
+      severity: severity
     }));
   }
 
@@ -267,7 +274,7 @@ Compose a polite response to the customer based on the action. If escalating, te
 async function persist(state: typeof GraphState.State) {
   const db = getDb();
   if (state.intent === 'escalate' || state.decision?.action === 'escalate') {
-    db.prepare(`UPDATE offers SET status = 'superseded' WHERE customer_id = ? AND status IN ('pending', 'accepted')`).run(state.customerId);
+    db.prepare(`UPDATE offers SET status = 'superseded' WHERE customer_id = ? AND status NOT IN ('captured', 'superseded')`).run(state.customerId);
   } else if (state.decision?.creates_offer && !(state.intent === 'accept' && state.activeOfferId)) {
     const existing = db.prepare(`SELECT * FROM offers WHERE customer_id = ? AND status IN ('pending', 'accepted') ORDER BY rowid DESC LIMIT 1`).get(state.customerId) as any;
     if (existing && existing.kind === state.decision.action && existing.amount_cents === state.decision.final_amount_cents) {

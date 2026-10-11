@@ -147,4 +147,5 @@ export interface MetricsV2Response {
   offers: OfferMetricRow[];
   recoveries: RecoveryMetricRow[];
   decisions: DecisionMetricRow[];
+  llm_model?: string | null;
 }

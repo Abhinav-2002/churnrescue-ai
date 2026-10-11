@@ -115,7 +115,7 @@ export function HumanQueuePanel({
                 <th scope="col" className="p-3">Customer</th>
                 <th scope="col" className="p-3">Reason</th>
                 <th scope="col" className="p-3">Severity</th>
-                <th scope="col" className="p-3">Waiting</th>
+                <th scope="col" className="p-3">Waiting (UTC)</th>
                 <th scope="col" className="p-3 text-right">Amount</th>
                 <th scope="col" className="p-3 text-right">Action</th>
               </tr>
@@ -135,7 +135,10 @@ export function HumanQueuePanel({
                   <td className="p-3">
                     <SeverityBadge severity={item.severity} />
                   </td>
-                  <td className="p-3 text-slate-500 dark:text-slate-400 font-mono">
+                  <td
+                    className="p-3 text-slate-500 dark:text-slate-400 font-mono"
+                    title={`${new Date(item.created_at).toISOString().replace('T', ' ').slice(0, 19)} UTC`}
+                  >
                     {getRelativeTime(item.created_at)}
                   </td>
                   <td className="p-3 text-right font-mono text-red-600 dark:text-red-400 font-semibold">

@@ -11,7 +11,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ offerId
     const offerId = 'offerId' in params ? params.offerId : (await params).offerId;
 
     const db = getDb();
-    let offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(offerId) as any;
+    let offer = db.prepare('SELECT * FROM offers WHERE id = ? OR paypal_order_id = ?').get(offerId, offerId) as any;
     
     if (!offer) {
       return NextResponse.json({ error: 'Offer not found' }, { status: 404 });
@@ -42,13 +42,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ offerId
     } else if (offer.status === 'accepted') {
       const updateRes = db.prepare(`UPDATE offers SET status = 'capturing', capturing_at = ? WHERE id = ? AND status = 'accepted'`).run(new Date().toISOString(), offer.id);
       if (updateRes.changes === 0) {
-        offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(offerId) as any;
+        offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(offer.id) as any;
         if (offer.status === 'captured') {
            return NextResponse.json({ success: true, status: 'captured' });
         }
         return NextResponse.json({ error: 'in_progress' }, { status: 409 });
       }
-      offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(offerId) as any;
+      offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(offer.id) as any;
     } else {
        return NextResponse.json({ error: 'Offer is not accepted' }, { status: 400 });
     }

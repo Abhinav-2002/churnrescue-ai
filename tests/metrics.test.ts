@@ -408,10 +408,10 @@ describe('Metrics Endpoint v2', () => {
     expect(classifyEscalationReason(['forced escalate by keyword rule: chargeback']).reason).toBe('chargeback');
     expect(classifyEscalationReason(['forced escalate by keyword rule: legal']).reason).toBe('legal');
     expect(classifyEscalationReason(['forced escalate by keyword rule: fraud']).reason).toBe('fraud');
-    expect(classifyEscalationReason(['forced escalate by keyword rule: human']).reason).toBe('human_requested');
-    expect(classifyEscalationReason(['forced escalate by keyword rule: anger']).reason).toBe('frustration');
+    expect(classifyEscalationReason(['forced escalate by keyword rule: human']).reason).toBe('human_request');
+    expect(classifyEscalationReason(['forced escalate by keyword rule: anger']).reason).toBe('anger');
     expect(classifyEscalationReason(['cancel intent >= 60 usage twice -> escalate']).reason).toBe('repeat_cancel');
-    expect(classifyEscalationReason(['unknown']).reason).toBe('general_escalation');
+    expect(classifyEscalationReason(['unknown']).reason).toBe('other');
   });
 
   it('11. ETag returns 304 when the resource has not changed', async () => {
@@ -499,7 +499,8 @@ describe('Metrics Endpoint v2', () => {
       'customers',
       'offers',
       'recoveries',
-      'decisions'
+      'decisions',
+      'llm_model'
     ];
 
     expect(Object.keys(json).sort()).toEqual(approvedTopLevelKeys.sort());

@@ -5,6 +5,38 @@ import { extractDollarAmounts, formatDollars } from '../money';
 export const ACTIONS = ['retry', 'partial_credit', 'downgrade', 'pause', 'escalate'] as const;
 export type AgentAction = (typeof ACTIONS)[number];
 
+export const ESCALATION_REASONS = [
+  'dispute',
+  'chargeback',
+  'legal',
+  'fraud',
+  'human_request',
+  'anger',
+  'repeat_cancel',
+  'repeat_pushback',
+  'other',
+] as const;
+export type EscalationReason = (typeof ESCALATION_REASONS)[number];
+
+export function mapEscalationSeverity(reason: EscalationReason): 'High' | 'Medium' | 'Low' {
+  switch (reason) {
+    case 'dispute':
+    case 'chargeback':
+    case 'legal':
+    case 'fraud':
+      return 'High';
+    case 'human_request':
+    case 'anger':
+    case 'other':
+      return 'Medium';
+    case 'repeat_cancel':
+    case 'repeat_pushback':
+      return 'Low';
+    default:
+      return 'Medium';
+  }
+}
+
 export const PARTIAL_CREDIT_MAX_USAGE_EXCLUSIVE = 60;
 export const MAX_DISCOUNT_PERCENT = 50;
 export const MIN_CHARGE_CENTS = 100;
@@ -29,18 +61,20 @@ export interface ValidatedDecision {
   target_plan: string | null;
   creates_offer: boolean;
   clamps: string[];
+  reason_category?: EscalationReason | null;
+  severity?: 'High' | 'Medium' | 'Low' | null;
 }
 
-const ESCALATION_PATTERNS: { label: string; re: RegExp }[] = [
+const ESCALATION_PATTERNS: { label: EscalationReason; re: RegExp }[] = [
   { label: 'dispute', re: /\bdisput(e|es|ed|ing)\b/i },
   { label: 'chargeback', re: /\bcharge[\s-]?backs?\b/i },
   { label: 'legal', re: /\b(lawyers?|attorneys?|legal|lawsuits?|sue|suing|court|small claims)\b/i },
   { label: 'fraud', re: /\b(fraud|scam|scammed|stealing|theft)\b/i },
-  { label: 'human', re: /\b(human|real person|live person|representative|supervisor|manager|speak to (someone|somebody|a person)|talk to (someone|somebody|a person))\b/i },
+  { label: 'human_request', re: /\b(human|real person|live person|representative|supervisor|manager|speak to (someone|somebody|a person)|talk to (someone|somebody|a person))\b/i },
   { label: 'anger', re: /\b(furious|angry|outraged|livid|pissed|disgusted|unacceptable)\b/i },
 ];
 
-export function detectEscalation(texts: string | string[]): string[] {
+export function detectEscalation(texts: string | string[]): EscalationReason[] {
   const all = (Array.isArray(texts) ? texts : [texts]).join('\n');
   return ESCALATION_PATTERNS.filter((p) => p.re.test(all)).map((p) => p.label);
 }
@@ -48,14 +82,16 @@ export function detectEscalation(texts: string | string[]): string[] {
 export function validateProposal(
   proposal: Partial<Proposal> | null | undefined,
   ctx: CustomerContext,
-  opts: { escalationKeywords?: string[], intent?: string, pushbacks?: number, cancelCount?: number, previousAmountCents?: number } = {},
+  opts: { escalationKeywords?: EscalationReason[], intent?: string, pushbacks?: number, cancelCount?: number, previousAmountCents?: number } = {},
 ): ValidatedDecision {
   const clamps: string[] = [];
   const keywords = opts.escalationKeywords ?? [];
 
   if (keywords.length) {
+    const reason_category = keywords[0];
+    const severity = mapEscalationSeverity(reason_category);
     if (opts.intent !== 'escalate') clamps.push(`forced escalate by keyword rule: ${keywords.join(',')}`);
-    return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps };
+    return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps, reason_category, severity };
   }
 
   let action: AgentAction | undefined;
@@ -66,7 +102,9 @@ export function validateProposal(
       clamps.push('cancel intent < 60 usage -> pause');
     } else {
       if ((opts.cancelCount || 0) > 1) {
-        return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps: ['cancel intent >= 60 usage twice -> escalate'] };
+        const reason_category: EscalationReason = 'repeat_cancel';
+        const severity = mapEscalationSeverity(reason_category);
+        return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps: ['cancel intent >= 60 usage twice -> escalate'], reason_category, severity };
       } else {
         action = 'retry';
         clamps.push('cancel intent >= 60 usage -> retry with pause option');
@@ -74,6 +112,11 @@ export function validateProposal(
     }
   } else if (opts.intent === 'decline' || opts.intent === 'negotiate' || opts.intent === 'neutral' || opts.intent === 'propose') {
     if (ctx.usage_percent < 60) {
+      if ((opts.pushbacks || 0) > 2) {
+        const reason_category: EscalationReason = 'repeat_pushback';
+        const severity = mapEscalationSeverity(reason_category);
+        return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps: ['ladder exhausted -> escalate'], reason_category, severity };
+      }
       action = 'partial_credit';
       clamps.push(`${opts.intent} intent < 60 usage -> partial_credit`);
     } else {
@@ -94,8 +137,11 @@ export function validateProposal(
   }
 
   switch (action) {
-    case 'escalate':
-      return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps };
+    case 'escalate': {
+      const reason_category: EscalationReason = 'other';
+      const severity = mapEscalationSeverity(reason_category);
+      return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps, reason_category, severity };
+    }
     case 'retry':
       return retry(ctx, clamps);
     case 'pause':
