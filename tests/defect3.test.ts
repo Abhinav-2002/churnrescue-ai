@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { useMetricsPolling } from '../src/lib/hooks/useMetricsPolling';
@@ -72,6 +73,61 @@ describe('Defect 3: Stale banner on 304 Not Modified', () => {
     expect(result.current.consecutiveFailures).toBe(0);
     expect(result.current.isStale).toBe(false);
     
+    unmount();
+  });
+
+  it('polls 304 Not Modified for 60 seconds with fake timers without stale banner appearing', async () => {
+    let callCount = 0;
+    global.fetch = vi.fn().mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ ETag: 'etag-init' }),
+          json: async () => ({ range_totals: { current: { failed_amount_cents: 1000 } } })
+        };
+      }
+      return {
+        ok: false,
+        status: 304,
+        headers: new Headers({ ETag: 'etag-init' }),
+        json: async () => ({})
+      };
+    });
+
+    const TestDashboard = () => {
+      const { isStale, error } = useMetricsPolling('/api/dashboard/metrics', 1000);
+      return React.createElement(
+        'div',
+        null,
+        isStale && !error
+          ? React.createElement('div', { role: 'alert' }, 'Telemetry connection stale — last data received. Reconnecting...')
+          : null
+      );
+    };
+
+    const { render, screen } = await import('@testing-library/react');
+    const { unmount } = render(React.createElement(TestDashboard));
+
+    // Initial 200 fetch
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+
+    // Poll for 60 seconds receiving 304 Not Modified
+    for (let i = 0; i < 60; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(screen.queryByRole('alert')).toBeNull();
+    }
+
+    expect(callCount).toBeGreaterThanOrEqual(60);
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByText(/telemetry connection stale/i)).toBeNull();
+
     unmount();
   });
 });

@@ -64,17 +64,19 @@ describe('Problem Sequence', () => {
     const reqMsg2 = { json: async () => ({ customerId: 'c_1', text: "$10 i can aford" }), headers: new Headers({ 'x-forwarded-for': '127.0.0.1' }) } as any;
     await messagePOST(reqMsg2);
 
-    const msgs = db.prepare('SELECT * FROM conversations WHERE customer_id = ? ORDER BY created_at ASC').all('c_1') as any[];
-    const agentMsgs = msgs.filter(m => m.role === 'agent');
+    const msgs = db.prepare('SELECT * FROM conversations WHERE customer_id = ? ORDER BY rowid ASC').all('c_1') as any[];
+    const agentMsgs = msgs.filter(m => m.role === 'agent' && m.text !== '[SYSTEM_CLAIM]');
 
     const firstMsgs = agentMsgs.filter(m => m.text.includes('didn\'t go through'));
-    // expect(firstMsgs.length).toBe(1);
+    expect(firstMsgs.length).toBe(1);
 
-    const offers = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY created_at ASC').all('c_1') as any[];
-    console.log(offers);
+    const offers = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY rowid ASC').all('c_1') as any[];
+    expect(offers[0].amount_cents).toBe(2000);
     expect(offers[1].amount_cents).toBe(1625);
     expect(offers[2].amount_cents).toBe(1250);
     expect(agentMsgs[1].text).not.toMatch(/lowest|best/i);
+    expect(agentMsgs[2].text).toContain('best I can offer');
+    expect(offers[1].amount_cents).toBeLessThanOrEqual(offers[0].amount_cents);
     expect(offers[2].amount_cents).toBeLessThanOrEqual(offers[1].amount_cents);
   });
 });
