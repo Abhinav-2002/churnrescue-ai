@@ -196,7 +196,7 @@ Stages are defined as **nested sets of unique customers**, ensuring monotonicity
 1. **Stage 1: Failed Renewal Customers (`failed`)**:
    - Source: $\text{COUNT}(\text{DISTINCT customer\_id})$ from `billing_events` WHERE `status IN ('failed', 'recovered', 'paused')`.
 2. **Stage 2: Interventions Offered (`offered`)**:
-   - Source: $\text{COUNT}(\text{DISTINCT customer\_id})$ from `offers` WHERE `status != 'superseded'` for customers in Stage 1.
+   - Source: $\text{COUNT}(\text{DISTINCT customer\_id})$ from `offers` (in any status, including superseded and declined) for customers in Stage 1. Labeled in UI as `(shown any offer, including superseded)`.
 3. **Stage 3: Terms Accepted (`accepted`)**:
    - Source: $\text{COUNT}(\text{DISTINCT customer\_id})$ from `offers` WHERE `status IN ('accepted', 'captured')` or `customers.status = 'paused'` for customers in Stage 2 (labeled in UI as `(includes confirmed pauses)`).
 4. **Stage 4: Recovered Customers (`paid`)**:

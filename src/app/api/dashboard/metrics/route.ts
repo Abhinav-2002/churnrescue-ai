@@ -397,7 +397,6 @@ export async function GET(req: Request) {
 
     const offeredCustomerRows = db.prepare(`
       SELECT DISTINCT customer_id FROM offers
-      WHERE status != 'superseded'
     `).all() as { customer_id: string }[];
     const allOfferedCustomerIds = new Set(offeredCustomerRows.map(r => r.customer_id));
     const offeredCustomerIds = new Set([...allOfferedCustomerIds].filter(id => failedCustomerIds.has(id)));

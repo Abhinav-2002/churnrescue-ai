@@ -43,10 +43,10 @@ export function FunnelChart({
   }
 
   const stages: FunnelStageConfig[] = [
-    { id: 'failed', label: '1. Failed Billing Events', color: '#ef4444', count: funnel?.failed ?? 0 },
-    { id: 'offered', label: '2. Interventions Offered', color: '#3b82f6', count: funnel?.offered ?? 0 },
+    { id: 'failed', label: '1. Failed Billing Events', subtitle: '(unique failed renewal customers)', color: '#ef4444', count: funnel?.failed ?? 0 },
+    { id: 'offered', label: '2. Interventions Offered', subtitle: '(shown any offer, including superseded)', color: '#3b82f6', count: funnel?.offered ?? 0 },
     { id: 'accepted', label: '3. Terms Accepted', subtitle: '(includes confirmed pauses)', color: '#f59e0b', count: funnel?.accepted ?? 0 },
-    { id: 'paid', label: '4. Payments Captured', color: '#10b981', count: funnel?.paid ?? 0 },
+    { id: 'paid', label: '4. Payments Captured', subtitle: '(successfully recovered customers)', color: '#10b981', count: funnel?.paid ?? 0 },
   ];
 
   const baseline = stages[0].count;

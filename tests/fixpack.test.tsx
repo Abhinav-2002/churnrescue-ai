@@ -245,10 +245,10 @@ describe('Fix Pack Tests: Dashboard Truthfulness', () => {
     `).all() as any[];
     expect(supersededOffers.every((o: any) => o.status === 'superseded')).toBe(true);
 
-    // Check Metrics API policy audit and funnel
+    // Check Metrics API policy audit and funnel (cust_esc received an offer, so offered=1, accepted=0, policy audit ignores superseded)
     const mRes = await metricsGET(mockReq());
     const mJson = await (mRes as Response).json();
-    expect(mJson.funnel.offered).toBe(0);
+    expect(mJson.funnel.offered).toBe(1);
     expect(mJson.funnel.accepted).toBe(0);
     expect(mJson.policy_audit.total_audited).toBe(0);
   });
@@ -412,8 +412,8 @@ describe('Fix Pack Tests: Dashboard Truthfulness', () => {
     // Verify raw logical counts:
     // 3 failed billing events
     expect(failed).toBe(3);
-    // 2 active non-superseded offers (off_rec captured, off_pau accepted)
-    expect(offered).toBe(2);
+    // 3 customers received offers (off_rec captured, off_pau accepted, off_esc superseded)
+    expect(offered).toBe(3);
     // 2 accepted terms (Alice captured recovery + George confirmed pause)
     expect(accepted).toBe(2);
     // 1 payment captured recovery
@@ -515,6 +515,64 @@ describe('Fix Pack Tests: Dashboard Truthfulness', () => {
 
     // data_inconsistencies detects the orphaned recovery
     expect(mJson.funnel.data_inconsistencies).toBe(1);
+  });
+
+  // FIX PACK 3 - Item 4: Funnel with superseded offers included in Offered stage
+  it('Item 4 (Fix Pack 3): Funnel counts all 6 failed customers who received offers, including superseded and declined', async () => {
+    const db = getDb();
+    // Reset DB tables for clean 6-customer fixture
+    db.exec(`
+      DELETE FROM agent_actions;
+      DELETE FROM conversations;
+      DELETE FROM recoveries;
+      DELETE FROM offers;
+      DELETE FROM billing_events;
+      DELETE FROM customers;
+    `);
+
+    // 1. Alice Smith (captured, recovered)
+    db.prepare(`INSERT INTO customers (id, name, email, plan_name, plan_price_cents, usage_percent, status) VALUES ('c_alice', 'Alice Smith', 'alice@test.com', 'Starter', 2500, 30, 'recovered')`).run();
+    db.prepare(`INSERT INTO billing_events (id, customer_id, type, amount_cents, status) VALUES ('b_alice', 'c_alice', 'renewal', 2500, 'recovered')`).run();
+    db.prepare(`INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, status) VALUES ('off_alice', 'c_alice', 'b_alice', 'partial_credit', 1625, 'captured')`).run();
+    db.prepare(`INSERT INTO recoveries (id, customer_id, billing_event_id, original_amount_cents, recovered_amount_cents, paypal_order_id) VALUES ('r_alice', 'c_alice', 'b_alice', 2500, 1625, 'ord_alice')`).run();
+
+    // 2. Bob Jones (declined, failed)
+    db.prepare(`INSERT INTO customers (id, name, email, plan_name, plan_price_cents, usage_percent, status) VALUES ('c_bob', 'Bob Jones', 'bob@test.com', 'Pro', 5000, 95, 'at_risk')`).run();
+    db.prepare(`INSERT INTO billing_events (id, customer_id, type, amount_cents, status) VALUES ('b_bob', 'c_bob', 'renewal', 5000, 'failed')`).run();
+    db.prepare(`INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, status) VALUES ('off_bob', 'c_bob', 'b_bob', 'retry', 5000, 'declined')`).run();
+
+    // 3. Diana Prince (escalated after offer -> superseded)
+    db.prepare(`INSERT INTO customers (id, name, email, plan_name, plan_price_cents, usage_percent, status) VALUES ('c_diana', 'Diana Prince', 'diana@test.com', 'Pro', 5000, 45, 'at_risk')`).run();
+    db.prepare(`INSERT INTO billing_events (id, customer_id, type, amount_cents, status) VALUES ('b_diana', 'c_diana', 'renewal', 5000, 'failed')`).run();
+    db.prepare(`INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, status) VALUES ('off_diana', 'c_diana', 'b_diana', 'partial_credit', 4000, 'superseded')`).run();
+    db.prepare(`INSERT INTO agent_actions (id, customer_id, billing_event_id, action, reasoning, details_json) VALUES ('a_diana', 'c_diana', 'b_diana', 'escalate', 'Customer requested human agent', '{"reason_category":"dispute","severity":"High"}')`).run();
+
+    // 4. Ethan Hunt (escalated after offer -> superseded)
+    db.prepare(`INSERT INTO customers (id, name, email, plan_name, plan_price_cents, usage_percent, status) VALUES ('c_ethan', 'Ethan Hunt', 'ethan@test.com', 'Starter', 2500, 15, 'at_risk')`).run();
+    db.prepare(`INSERT INTO billing_events (id, customer_id, type, amount_cents, status) VALUES ('b_ethan', 'c_ethan', 'renewal', 2500, 'failed')`).run();
+    db.prepare(`INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, status) VALUES ('off_ethan', 'c_ethan', 'b_ethan', 'partial_credit', 1625, 'superseded')`).run();
+    db.prepare(`INSERT INTO agent_actions (id, customer_id, billing_event_id, action, reasoning, details_json) VALUES ('a_ethan', 'c_ethan', 'b_ethan', 'escalate', 'Customer wants supervisor', '{"reason_category":"human_request","severity":"Medium"}')`).run();
+
+    // 5. George Costanza (pause accepted)
+    db.prepare(`INSERT INTO customers (id, name, email, plan_name, plan_price_cents, usage_percent, status) VALUES ('c_george', 'George Costanza', 'george@test.com', 'Starter', 2500, 5, 'paused')`).run();
+    db.prepare(`INSERT INTO billing_events (id, customer_id, type, amount_cents, status) VALUES ('b_george', 'c_george', 'renewal', 2500, 'paused')`).run();
+    db.prepare(`INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, status) VALUES ('off_george', 'c_george', 'b_george', 'pause', 0, 'accepted')`).run();
+
+    // 6. Hannah Abbott (captured, recovered)
+    db.prepare(`INSERT INTO customers (id, name, email, plan_name, plan_price_cents, usage_percent, status) VALUES ('c_hannah', 'Hannah Abbott', 'hannah@test.com', 'Enterprise', 15000, 60, 'recovered')`).run();
+    db.prepare(`INSERT INTO billing_events (id, customer_id, type, amount_cents, status) VALUES ('b_hannah', 'c_hannah', 'renewal', 15000, 'recovered')`).run();
+    db.prepare(`INSERT INTO offers (id, customer_id, billing_event_id, kind, amount_cents, status) VALUES ('off_hannah', 'c_hannah', 'b_hannah', 'retry', 15000, 'captured')`).run();
+    db.prepare(`INSERT INTO recoveries (id, customer_id, billing_event_id, original_amount_cents, recovered_amount_cents, paypal_order_id) VALUES ('r_hannah', 'c_hannah', 'b_hannah', 15000, 15000, 'ord_hannah')`).run();
+
+    const mRes = await metricsGET(mockReq());
+    const mJson = await (mRes as Response).json();
+
+    // Exact expected numbers:
+    expect(mJson.funnel.failed).toBe(6);
+    expect(mJson.funnel.offered).toBe(6);
+    expect(mJson.funnel.accepted).toBe(3);
+    expect(mJson.funnel.paid).toBe(2);
+    expect(mJson.funnel.data_inconsistencies).toBe(0);
   });
 
   // FIX PACK 2 - Item 7: Status and intervention capitalization, and (UTC) on every time column header
