@@ -200,4 +200,75 @@ describe('Widget Smoke Test', () => {
     const starts = mockFetch.mock.calls.filter(([u]) => String(u).startsWith('/api/agent/start'));
     expect(starts.length).toBe(1);
   });
+
+  it('Fix Pack 3: confirm-pause passes offerId and clears pause button, and openChatForCustomer resets customer state', async () => {
+    let currentState: any = {
+      customer: { id: 'c_1', status: 'at_risk' },
+      messages: [{ role: 'agent', text: 'Would you like to pause?' }],
+      nextStep: 'confirm_pause',
+      offerId: 'off_pause_123',
+    };
+
+    mockFetch.mockImplementation((url, opts) => {
+      if (String(url).startsWith('/api/agent/state')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(currentState),
+        });
+      }
+      if (String(url).startsWith('/api/agent/confirm-pause')) {
+        const body = JSON.parse(opts?.body);
+        expect(body.customerId).toBe('c_1');
+        expect(body.offerId).toBe('off_pause_123');
+        currentState = {
+          customer: { id: 'c_1', status: 'paused' },
+          messages: [{ role: 'agent', text: 'Account is now paused.' }],
+          nextStep: 'none',
+        };
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    function TestHarnessWithControls() {
+      const { openChatForCustomer } = useChat();
+      return (
+        <div>
+          <button type="button" onClick={() => openChatForCustomer('c_2')}>Switch to C2</button>
+          <TestHarness initialCustomerId="c_1" />
+        </div>
+      );
+    }
+
+    render(
+      <ChatProvider>
+        <TestHarnessWithControls />
+      </ChatProvider>
+    );
+
+    // Initial load: confirm pause button appears
+    await waitFor(() => expect(screen.getByText('Confirm Pause')).toBeTruthy());
+    expect(screen.getByText('Would you like to pause?')).toBeTruthy();
+
+    // Click confirm pause
+    fireEvent.click(screen.getByText('Confirm Pause'));
+
+    // After pause confirmed, pause button is gone and confirmation shows
+    await waitFor(() => expect(screen.queryByText('Confirm Pause')).toBeNull());
+    expect(screen.getByText(/Your subscription has been paused successfully/i)).toBeTruthy();
+
+    // Now switch customer using openChatForCustomer
+    currentState = {
+      customer: { id: 'c_2', status: 'at_risk' },
+      messages: [{ role: 'agent', text: 'Hello C2, renewal failed.' }],
+      nextStep: 'none',
+    };
+
+    fireEvent.click(screen.getByText('Switch to C2'));
+    await waitFor(() => expect(screen.getByText('Hello C2, renewal failed.')).toBeTruthy());
+    expect(screen.queryByText('Would you like to pause?')).toBeNull();
+  });
 });
