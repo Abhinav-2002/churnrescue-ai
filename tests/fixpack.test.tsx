@@ -575,6 +575,40 @@ describe('Fix Pack Tests: Dashboard Truthfulness', () => {
     expect(mJson.funnel.data_inconsistencies).toBe(0);
   });
 
+  // FIX PACK 3 - Item 5: Real route execution for "this is a chargeback" verifies stored details_json metadata
+  it('Item 5 (Fix Pack 3): Real route execution for "this is a chargeback" stores reason_category chargeback and severity High in details_json', async () => {
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO customers (id, name, email, plan_name, plan_price_cents, usage_percent, status)
+      VALUES ('cust_cb_fp3', 'Carol FP3', 'carol_fp3@test.com', 'Starter', 2500, 30, 'at_risk')
+    `).run();
+    db.prepare(`
+      INSERT INTO billing_events (id, customer_id, type, amount_cents, status)
+      VALUES ('bill_cb_fp3', 'cust_cb_fp3', 'renewal', 2500, 'failed')
+    `).run();
+
+    // Execute real route request with mocked LLM/PayPal
+    const req = mockReq({
+      customerId: 'cust_cb_fp3',
+      billingEventId: 'bill_cb_fp3',
+      text: 'this is a chargeback'
+    });
+    const res = await messagePOST(req);
+    expect(res.status).toBe(200);
+
+    // Verify stored agent_action record
+    const action = db.prepare(`SELECT * FROM agent_actions WHERE customer_id = 'cust_cb_fp3' ORDER BY rowid DESC LIMIT 1`).get() as any;
+    expect(action).toBeTruthy();
+    expect(action.action).toBe('escalate');
+
+    // Parse and verify details_json metadata
+    const details = JSON.parse(action.details_json);
+    expect(details.reason_category).toBe('chargeback');
+    expect(details.severity).toBe('High');
+    expect(details.clamps).toContain('forced escalate by keyword rule: chargeback');
+    expect(details.template_used).toBe(true);
+  });
+
   // FIX PACK 2 - Item 7: Status and intervention capitalization, and (UTC) on every time column header
   it('Item 7 (Fix Pack 2): Status and intervention capitalization, Retry payment, and (UTC) on every time column header', () => {
     // 1. Status capitalization
