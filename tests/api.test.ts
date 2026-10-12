@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { POST as startPOST } from '../src/app/api/agent/start/route';
 import { POST as messagePOST } from '../src/app/api/agent/message/route';
 import { getDb, seedDb } from '../src/lib/db';
-import { resetRateLimitsForTests } from '../src/lib/rate-limit';
 
 vi.mock('../src/lib/agent/graph', () => ({
   graph: {
@@ -22,7 +21,6 @@ function mockRequest(body: any, ip: string = '127.0.0.1') {
 
 describe('API Routes', () => {
   beforeEach(() => {
-    resetRateLimitsForTests();
     process.env.SQLITE_PATH = ':memory:';
     getDb().exec('DELETE FROM agent_actions; DELETE FROM conversations; DELETE FROM recoveries; DELETE FROM offers; DELETE FROM billing_events; DELETE FROM customers;');
     seedDb();
