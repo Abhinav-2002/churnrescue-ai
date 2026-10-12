@@ -14,23 +14,20 @@ interface ChatContextType {
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
-  const [isOpen, setIsOpen] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        return localStorage.getItem('churnrescue_chat_open') === 'true';
-      } catch {}
-    }
-    return false;
-  });
-  const [customerId, setCustomerId] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        return localStorage.getItem('churnrescue_customer_id');
-      } catch {}
-    }
-    return null;
-  });
+  const [isOpen, setIsOpen] = useState<boolean>(false);
+  const [customerId, setCustomerId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Hydrate client-side state from localStorage after mount to avoid SSR hydration mismatch
+  useEffect(() => {
+    try {
+      const savedOpen = localStorage.getItem('churnrescue_chat_open') === 'true';
+      const savedCustId = localStorage.getItem('churnrescue_customer_id');
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (savedOpen) setIsOpen(true);
+      if (savedCustId) setCustomerId(savedCustId);
+    } catch {}
+  }, []);
 
   // Listen to storage events across tabs/windows
   useEffect(() => {

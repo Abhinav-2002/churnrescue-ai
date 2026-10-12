@@ -271,4 +271,35 @@ describe('Widget Smoke Test', () => {
     await waitFor(() => expect(screen.getByText('Hello C2, renewal failed.')).toBeTruthy());
     expect(screen.queryByText('Would you like to pause?')).toBeNull();
   });
+
+  it('hydrates saved localStorage state after mount without server/client branch mismatch', async () => {
+    localStorage.setItem('churnrescue_chat_open', 'true');
+    localStorage.setItem('churnrescue_customer_id', 'c_hydrated');
+
+    mockFetch.mockImplementation((url) => {
+      if (url.startsWith('/api/agent/state?customerId=c_hydrated')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            customer: { id: 'c_hydrated', status: 'at_risk' },
+            messages: [{ role: 'agent', text: 'Welcome back c_hydrated.' }],
+            nextStep: 'none'
+          })
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    render(
+      <ChatProvider>
+        <ChatWidget />
+      </ChatProvider>
+    );
+
+    // After mount, useEffect hydrates localStorage and opens the chat
+    await waitFor(() => {
+      expect(screen.getByText('Welcome back c_hydrated.')).toBeTruthy();
+    });
+    expect(screen.getByPlaceholderText('Type a message...')).toBeTruthy();
+  });
 });
