@@ -3,7 +3,6 @@ import { POST as messagePOST } from '../src/app/api/agent/message/route';
 import { POST as capturePOST } from '../src/app/api/offers/[offerId]/capture/route';
 import { getDb, resetDb } from '../src/lib/db';
 import * as paypal from '../src/lib/paypal';
-import { resetRateLimitsForTests } from '../src/lib/rate-limit';
 import { AIMessage } from '@langchain/core/messages';
 
 // Mocks never touch the network: every PayPal call is a vi.fn().
@@ -47,7 +46,6 @@ function seedDeclinedCapture() {
 describe('Defect 7: decline then re-accept', () => {
   beforeEach(() => {
     resetDb();
-    resetRateLimitsForTests();
   });
 
   afterEach(() => {

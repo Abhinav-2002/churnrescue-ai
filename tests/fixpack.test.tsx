@@ -6,7 +6,6 @@ import { getDb } from '../src/lib/db';
 import { GET as metricsGET } from '../src/app/api/dashboard/metrics/route';
 import { POST as messagePOST } from '../src/app/api/agent/message/route';
 import { POST as capturePOST } from '../src/app/api/offers/[offerId]/capture/route';
-import { resetRateLimitsForTests } from '../src/lib/rate-limit';
 import { AIMessage } from '@langchain/core/messages';
 import { ESCALATION_REASONS, mapEscalationSeverity, type EscalationReason } from '../src/lib/agent/guardrails';
 import { GuardrailsPanel } from '../src/components/dashboard/GuardrailsPanel';
@@ -85,7 +84,6 @@ describe('Fix Pack Tests: Dashboard Truthfulness', () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
-    resetRateLimitsForTests();
   });
 
   // Item 1: Model label

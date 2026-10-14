@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { getDb } from '../src/lib/db';
 import { GET, auditOffer, classifyEscalationReason } from '../src/app/api/dashboard/metrics/route';
-import { resetRateLimitsForTests } from '../src/lib/rate-limit';
 
 describe('Metrics Endpoint v2', () => {
   beforeEach(() => {
@@ -11,7 +10,6 @@ describe('Metrics Endpoint v2', () => {
   
   afterEach(() => {
     vi.restoreAllMocks();
-    resetRateLimitsForTests();
   });
 
   async function mockRequest(

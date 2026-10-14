@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { POST as messagePOST } from '../src/app/api/agent/message/route';
 import { getDb, resetDb } from '../src/lib/db';
 import * as paypal from '../src/lib/paypal';
-import { resetRateLimitsForTests } from '../src/lib/rate-limit';
 import { AIMessage } from '@langchain/core/messages';
 import { createOrderInternal, ORDER_CLAIM_STALE_MS } from '../src/lib/agent/tools';
 
@@ -30,7 +29,6 @@ vi.mock('../src/lib/agent/llm', () => ({
 describe('Defect 4: Double Accept Concurrency', () => {
   beforeEach(() => {
     resetDb();
-    resetRateLimitsForTests();
     vi.mocked(paypal.createOrder).mockResolvedValue({ id: 'mock_order_123', status: 'CREATED' });
   });
 
@@ -58,8 +56,11 @@ describe('Defect 4: Double Accept Concurrency', () => {
     const data1 = await res1.json();
     const data2 = await res2.json();
     
-    expect(data1.orderId).toBe('mock_order_123');
-    expect(data2.orderId).toBe('mock_order_123');
+    // Assert both responses carry the order id stored in the database
+    const storedOffer = db.prepare('SELECT paypal_order_id FROM offers WHERE id = ?').get('off_1') as any;
+    expect(storedOffer.paypal_order_id).toBe('mock_order_123');
+    expect(data1.orderId).toBe(storedOffer.paypal_order_id);
+    expect(data2.orderId).toBe(storedOffer.paypal_order_id);
     
     // Check createOrder called with Request-Id
     expect(vi.mocked(paypal.createOrder).mock.calls[0][3]).toBe('offer_off_1');

@@ -5,7 +5,7 @@ import { POST as startPOST } from '../src/app/api/agent/start/route';
 import { GET as metricsGET } from '../src/app/api/dashboard/metrics/route';
 import { getDb, resetDb } from '../src/lib/db';
 import * as paypal from '../src/lib/paypal';
-import { resetRateLimitsForTests, tryConsumeLlmRun } from '../src/lib/rate-limit';
+import { tryConsumeLlmRun } from '../src/lib/rate-limit';
 
 vi.mock('../src/lib/paypal', () => ({
   getOrder: vi.fn(),
@@ -36,7 +36,6 @@ vi.mock('../src/lib/agent/llm', async () => {
 describe('Systematic Probing', () => {
   beforeEach(() => {
     resetDb();
-    resetRateLimitsForTests();
   });
 
   afterEach(() => {

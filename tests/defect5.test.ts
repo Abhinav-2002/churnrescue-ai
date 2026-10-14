@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { POST as messagePOST } from '../src/app/api/agent/message/route';
 import { getDb, resetDb } from '../src/lib/db';
-import { resetRateLimitsForTests } from '../src/lib/rate-limit';
 import * as llmModule from '../src/lib/agent/llm';
 
 vi.mock('../src/lib/agent/llm', () => ({
@@ -23,7 +22,6 @@ vi.mock('../src/lib/agent/llm', () => ({
 describe('Defect 5: Decline resets ladder step', () => {
   beforeEach(() => {
     resetDb();
-    resetRateLimitsForTests();
   });
 
   afterEach(() => {
@@ -66,9 +64,11 @@ describe('Defect 5: Decline resets ladder step', () => {
     const offers = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY rowid ASC').all('c_1') as any[];
     
     // The third offer is the new partial_credit offer after renegotiating.
-    // Because the first offer was 'declined', getPreviousLadderStep ignored it, and ladder reset to 0!
-    // But it should have progressed to 2 (since it was at 1).
-    // We will expect it to be 2, which will FAIL because it actually is 0.
+    // Because the first offer was 'declined', if getPreviousLadderStep ignores declined/failed offers, ladder resets!
+    // But it should progress to 2 (since it was at 1).
+    expect(offers).toHaveLength(3);
+    expect(offers[0].status).toBe('declined');
+    expect(offers[0].ladder_step).toBe(1);
     expect(offers[2].ladder_step).toBe(2);
   });
 });
