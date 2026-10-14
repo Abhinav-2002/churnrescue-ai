@@ -67,6 +67,10 @@ describe('Problem Sequence', () => {
     const reqMsg2 = { json: async () => ({ customerId: 'c_1', text: "$10 i can aford" }), headers: new Headers({ 'x-forwarded-for': '127.0.0.1' }) } as any;
     await messagePOST(reqMsg2);
 
+    const reqMsg3 = { json: async () => ({ customerId: 'c_1', text: "still too much" }), headers: new Headers({ 'x-forwarded-for': '127.0.0.1' }) } as any;
+    const resMsg3 = await messagePOST(reqMsg3);
+    const jsonMsg3 = await resMsg3.json();
+
     const msgs = db.prepare('SELECT * FROM conversations WHERE customer_id = ? ORDER BY rowid ASC').all('c_1') as any[];
     const agentMsgs = msgs.filter(m => m.role === 'agent' && m.text !== '[SYSTEM_CLAIM]');
 
@@ -74,23 +78,37 @@ describe('Problem Sequence', () => {
     expect(firstMsgs.length).toBe(1);
 
     const offers = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY rowid ASC').all('c_1') as any[];
+    expect(offers).toHaveLength(3);
     expect(offers[0].amount_cents).toBe(2000);
     expect(offers[1].amount_cents).toBe(1625);
     expect(offers[2].amount_cents).toBe(1250);
+    expect(offers[0].status).toBe('superseded');
+    expect(offers[1].status).toBe('superseded');
+    expect(offers[2].status).toBe('superseded');
     expect(agentMsgs[1].text).not.toMatch(/lowest|best/i);
     expect(agentMsgs[2].text).toContain('best I can offer');
+    expect(agentMsgs[2].text).toMatch(/pause/i);
     expect(offers[1].amount_cents).toBeLessThanOrEqual(offers[0].amount_cents);
     expect(offers[2].amount_cents).toBeLessThanOrEqual(offers[1].amount_cents);
+
+    expect(jsonMsg3.nextStep).toBe('escalated');
+    const lastAction = db.prepare("SELECT * FROM agent_actions WHERE customer_id = 'c_1' ORDER BY rowid DESC LIMIT 1").get() as any;
+    expect(lastAction.action).toBe('escalate');
+
+    const openOffers = db.prepare("SELECT * FROM offers WHERE customer_id = 'c_1' AND status IN ('pending', 'accepted')").all();
+    expect(openOffers).toHaveLength(0);
   });
 
   it('clamps model that proposes 50% discount on first turn and retry on later turns to 2000, 1625, 1250', async () => {
     activeStructuredOutputs = [
       { intent: 'propose', proposal: { action: 'partial_credit', discount_percent: 50, reasoning: 'model proposes 50% first' } },
       { intent: 'negotiate', proposal: { action: 'retry', reasoning: 'model proposes retry' } },
+      { intent: 'negotiate', proposal: { action: 'retry', reasoning: 'model proposes retry' } },
       { intent: 'negotiate', proposal: { action: 'retry', reasoning: 'model proposes retry' } }
     ];
     activeTexts = [
       "Your Starter renewal of $25.00 didn't go through. I can offer you $12.50.",
+      "The lowest rate is $25.00.",
       "The lowest rate is $25.00.",
       "The lowest rate is $25.00."
     ];
@@ -106,14 +124,33 @@ describe('Problem Sequence', () => {
     const reqMsg1 = { json: async () => ({ customerId: 'c_1', text: "can you do better" }), headers: new Headers({ 'x-forwarded-for': '127.0.0.1' }) } as any;
     await messagePOST(reqMsg1);
 
-    const reqMsg2 = { json: async () => ({ customerId: 'c_1', text: "still too much" }), headers: new Headers({ 'x-forwarded-for': '127.0.0.1' }) } as any;
+    const reqMsg2 = { json: async () => ({ customerId: 'c_1', text: "$10 i can afford" }), headers: new Headers({ 'x-forwarded-for': '127.0.0.1' }) } as any;
     await messagePOST(reqMsg2);
 
+    const reqMsg3 = { json: async () => ({ customerId: 'c_1', text: "still too much" }), headers: new Headers({ 'x-forwarded-for': '127.0.0.1' }) } as any;
+    const resMsg3 = await messagePOST(reqMsg3);
+    const jsonMsg3 = await resMsg3.json();
+
+    const agentMsgs = db.prepare("SELECT * FROM conversations WHERE customer_id = ? AND role = 'agent' AND text != '[SYSTEM_CLAIM]' ORDER BY rowid ASC").all('c_1') as any[];
+    expect(agentMsgs[2].text).toContain('best I can offer');
+    expect(agentMsgs[2].text).toMatch(/pause/i);
+
+    expect(jsonMsg3.nextStep).toBe('escalated');
+    const lastAction = db.prepare("SELECT * FROM agent_actions WHERE customer_id = 'c_1' ORDER BY rowid DESC LIMIT 1").get() as any;
+    expect(lastAction.action).toBe('escalate');
+
+    const openOffers = db.prepare("SELECT * FROM offers WHERE customer_id = 'c_1' AND status IN ('pending', 'accepted')").all();
+    expect(openOffers).toHaveLength(0);
+
     const offers = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY rowid ASC').all('c_1') as any[];
-    // Even though model proposed 50% on turn 0 and retry on later turns, the code ladder dictates 2000, 1625, 1250
+    // Even though model proposed 50% on turn 0 and retry on later turns, the code ladder dictates 2000, 1625, 1250, then escalate
+    expect(offers).toHaveLength(3);
     expect(offers[0].amount_cents).toBe(2000);
     expect(offers[1].amount_cents).toBe(1625);
     expect(offers[2].amount_cents).toBe(1250);
+    expect(offers[0].status).toBe('superseded');
+    expect(offers[1].status).toBe('superseded');
+    expect(offers[2].status).toBe('superseded');
     expect(offers[1].amount_cents).toBeLessThanOrEqual(offers[0].amount_cents);
     expect(offers[2].amount_cents).toBeLessThanOrEqual(offers[1].amount_cents);
   });

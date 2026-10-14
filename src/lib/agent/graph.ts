@@ -220,7 +220,7 @@ Compose a polite response to the customer based on the action. If escalating, te
     } else {
       // partial_credit
       if (!lower_tier_available) {
-        lastMsg = `${newStr} is the best I can offer. Would you like to proceed?`;
+        lastMsg = `${newStr} is the best I can offer. Would you like to proceed? You can also pause your account if you need more time.`;
       } else if (pushbacks > 0) {
         lastMsg = `I can improve that to ${newStr}. Would you like to proceed?`;
       } else {
@@ -234,10 +234,19 @@ Compose a polite response to the customer based on the action. If escalating, te
     templateUsed.reason = 'model text passed';
   }
 
+  // Ensure that at ladder step 2 (partial_credit with no lower tier), the reply always includes the pause option
+  if (state.decision?.action === 'partial_credit' && !lower_tier_available && usage < 60) {
+    if (!/pause/i.test(lastMsg)) {
+      lastMsg = lastMsg + ' You can also pause your account if you need more time.';
+    }
+  }
+
   // Never send the same text twice in a row
   if (lastMsg === lastAgentText && lastMsg !== '') {
     if (usage < 60) {
-      lastMsg = lastMsg + ' You can also pause your account if you need more time.';
+      if (!/pause/i.test(lastMsg)) {
+        lastMsg = lastMsg + ' You can also pause your account if you need more time.';
+      }
     } else {
       lastMsg = lastMsg + ' Take your time — we\'re here if you change your mind.';
     }

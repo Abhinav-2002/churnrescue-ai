@@ -112,7 +112,7 @@ export function validateProposal(
     }
   } else if (opts.intent === 'decline' || opts.intent === 'negotiate' || opts.intent === 'neutral' || opts.intent === 'propose') {
     if (ctx.usage_percent < 60) {
-      if ((opts.pushbacks || 0) > 2) {
+      if ((opts.pushbacks || 0) >= 3 || ((opts.pushbacks || 0) >= 2 && (opts.intent === 'negotiate' || opts.intent === 'decline') && opts.previousAmountCents !== undefined && opts.previousAmountCents <= Math.round(ctx.plan_price_cents * 0.5))) {
         const reason_category: EscalationReason = 'repeat_pushback';
         const severity = mapEscalationSeverity(reason_category);
         return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps: ['ladder exhausted -> escalate'], reason_category, severity };
