@@ -95,28 +95,34 @@ export function validateProposal(
   }
 
   let action: AgentAction | undefined;
-  
+
+  const isLadderExhausted = (opts.pushbacks || 0) >= 3 || (
+    (opts.pushbacks || 0) >= 2 &&
+    opts.previousAmountCents !== undefined &&
+    opts.previousAmountCents <= Math.round(ctx.plan_price_cents * 0.5)
+  );
+
+  if (opts.intent !== 'accept' && isLadderExhausted) {
+    const reason_category: EscalationReason = 'repeat_pushback';
+    const severity = mapEscalationSeverity(reason_category);
+    return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps: ['ladder exhausted -> escalate'], reason_category, severity };
+  }
+
   if (opts.intent === 'cancel') {
+    if ((opts.cancelCount || 0) > 1) {
+      const reason_category: EscalationReason = 'repeat_cancel';
+      const severity = mapEscalationSeverity(reason_category);
+      return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps: ['repeat cancel -> escalate'], reason_category, severity };
+    }
     if (ctx.usage_percent < 60) {
       action = 'pause';
       clamps.push('cancel intent < 60 usage -> pause');
     } else {
-      if ((opts.cancelCount || 0) > 1) {
-        const reason_category: EscalationReason = 'repeat_cancel';
-        const severity = mapEscalationSeverity(reason_category);
-        return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps: ['cancel intent >= 60 usage twice -> escalate'], reason_category, severity };
-      } else {
-        action = 'retry';
-        clamps.push('cancel intent >= 60 usage -> retry with pause option');
-      }
+      action = 'retry';
+      clamps.push('cancel intent >= 60 usage -> retry with pause option');
     }
   } else if (opts.intent === 'decline' || opts.intent === 'negotiate' || opts.intent === 'neutral' || opts.intent === 'propose') {
     if (ctx.usage_percent < 60) {
-      if ((opts.pushbacks || 0) >= 3 || ((opts.pushbacks || 0) >= 2 && (opts.intent === 'negotiate' || opts.intent === 'decline') && opts.previousAmountCents !== undefined && opts.previousAmountCents <= Math.round(ctx.plan_price_cents * 0.5))) {
-        const reason_category: EscalationReason = 'repeat_pushback';
-        const severity = mapEscalationSeverity(reason_category);
-        return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps: ['ladder exhausted -> escalate'], reason_category, severity };
-      }
       action = 'partial_credit';
       clamps.push(`${opts.intent} intent < 60 usage -> partial_credit`);
     } else {
