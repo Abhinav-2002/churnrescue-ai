@@ -22,7 +22,7 @@ import { getLlm } from './llm';
 
 export function nextLadderStep(previousStep: number | null, intent: string): number {
   if (previousStep === null) return 0;
-  if (intent === 'negotiate') return Math.min(previousStep + 1, 2);
+  if (intent === 'negotiate' || intent === 'decline') return Math.min(previousStep + 1, 2);
   return previousStep;
 }
 
