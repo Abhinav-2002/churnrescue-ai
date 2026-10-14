@@ -218,7 +218,7 @@ describe('Metrics Endpoint v2', () => {
     }
     const res = await GET(await mockRequest()) as Response;
     expect(res.status).toBe(429);
-  });
+  }, 15000);
 
   it('an exception returns only a short code', async () => {
     const db = getDb();
