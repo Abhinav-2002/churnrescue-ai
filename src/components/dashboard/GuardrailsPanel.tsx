@@ -109,7 +109,7 @@ export function GuardrailsPanel({
             </div>
           </div>
           <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 leading-tight">
-            Decisions where discount was clamped by code ladder rules (model cannot set prices).
+            Decisions where a proposed discount was lowered to stay within policy limits.
           </div>
         </div>
 
@@ -123,7 +123,7 @@ export function GuardrailsPanel({
             </div>
           </div>
           <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 leading-tight">
-            High usage or policy rules enforced retry at full plan price.
+            The code replaced the model&apos;s proposed action with a retry.
           </div>
         </div>
 

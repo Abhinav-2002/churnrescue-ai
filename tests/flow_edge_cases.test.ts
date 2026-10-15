@@ -172,7 +172,7 @@ describe('Fix Pack 7: Flow Edge Cases', () => {
     const reqStart = { json: async () => ({ customerId: 'c_1' }), headers: new Headers({ 'x-forwarded-for': '127.0.0.1' }) } as any;
     await startPOST(reqStart);
 
-    const offersAfterStart = db.prepare("SELECT * FROM offers WHERE customer_id = 'c_1'").all();
+    const offersAfterStart = db.prepare("SELECT * FROM offers WHERE customer_id = 'c_1'").all() as any[];
     expect(offersAfterStart).toHaveLength(1);
     expect(offersAfterStart[0].amount_cents).toBe(2000);
 
@@ -181,7 +181,7 @@ describe('Fix Pack 7: Flow Edge Cases', () => {
     const jsonDecline = await resDecline.json();
 
     // Offers count stays 1 (no new discount offer created)
-    const offersAfterDecline = db.prepare("SELECT * FROM offers WHERE customer_id = 'c_1'").all();
+    const offersAfterDecline = db.prepare("SELECT * FROM offers WHERE customer_id = 'c_1'").all() as any[];
     expect(offersAfterDecline).toHaveLength(1);
     expect(offersAfterDecline[0].amount_cents).toBe(2000);
 
