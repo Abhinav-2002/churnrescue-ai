@@ -134,11 +134,14 @@ export function validateProposal(
     action = 'pause';
     clamps.push('pause_request intent -> pause');
   } else if (opts.intent === 'question') {
-    clamps.push('question intent -> restate offer');
+    clamps.push('question intent -> preserve existing offer');
+    const existingAmount = opts.previousAmountCents !== undefined ? opts.previousAmountCents : Math.max(ctx.plan_price_cents, MIN_CHARGE_CENTS);
     return {
-      action: 'retry',
-      final_amount_cents: null,
-      discount_percent: null,
+      action: opts.previousAmountCents !== undefined && ctx.usage_percent < 60 ? 'partial_credit' : 'retry',
+      final_amount_cents: existingAmount,
+      discount_percent: opts.previousAmountCents !== undefined && ctx.plan_price_cents > 0
+        ? Math.round(((ctx.plan_price_cents - existingAmount) / ctx.plan_price_cents) * 100)
+        : null,
       target_plan: null,
       creates_offer: false,
       clamps

@@ -72,7 +72,7 @@ Lower discount tier available if customer pushes back: ${lower_tier_available}
 Rules:
 If usage_percent < 60, prefer partial_credit (first offer ≤20% discount), downgrade or pause before plain retry.
 If usage_percent >= 60, retry only (no discount). If they want to cancel, mention the full price and the pause option.
-Intents: 'cancel' if user wants to cancel, 'pause_request' if user asks to pause/freeze subscription, 'question' if user asks a question about the charge or plan, 'decline' if they reject an offer, 'escalate' ONLY if angry/abusive or demanding human/manager/legal.
+Intents: 'negotiate' if user asks for a lower price, counter-offers, or pushes back on price (e.g. "$10 i can afford", "can you make it lower", "still too much"), 'accept' if user agrees or accepts an offer, 'decline' if user rejects or says no without asking for a lower price (e.g. "no thanks", "not interested"), 'cancel' if user wants to cancel, 'pause_request' if user asks to pause/freeze subscription, 'question' if user asks a question about the charge or plan, 'escalate' ONLY if angry/abusive or demanding human/manager/legal.
 `;
 
   const result = await structuredLlm.invoke([{ role: 'system', content: sysMsg }, ...state.messages]);
@@ -138,14 +138,30 @@ async function compose_message(state: typeof GraphState.State, config: any) {
   const finalAmount = state.decision?.final_amount_cents;
   const newStr = finalAmount ? formatDollars(finalAmount) : '';
 
+  let guidance = '';
+  if (state.intent === 'escalate' || state.decision?.action === 'escalate') {
+    guidance = `Tell the customer exactly: "Your account has been flagged for our billing team, and a specialist will follow up with you by email shortly."`;
+  } else if (state.intent === 'decline') {
+    guidance = `Acknowledge the customer's refusal politely (e.g. "I understand you don't wish to proceed with this offer.").
+Mention the option to pause their subscription if they need more time (mention pause exactly once).
+DO NOT ask to retry payment or process any payment. DO NOT state that any payment is due. DO NOT make any new discount offer, and DO NOT mention escalating or contacting a specialist. End politely by letting them know they can pause or reach out anytime.`;
+  } else if (state.intent === 'question') {
+    guidance = `Explain that this charge is for their ${planName} subscription renewal.
+${finalAmount && state.decision?.discount_percent ? `State that their current offer of ${newStr} is still available, or they can pause their subscription. Ask "Would you like to proceed?". DO NOT claim that the original price (${priceStr}) is the new final amount.` : `State that their renewal is ${priceStr} and that they can retry the payment or pause their subscription.`}`;
+  } else if (state.decision?.action === 'pause') {
+    guidance = `Confirm that their subscription can be paused with no charge.`;
+  } else {
+    guidance = `You MUST explicitly state the original plan price (${priceStr}) and the new final amount (${finalAmount ? formatDollars(finalAmount) : priceStr}) in your message.
+Mention the customer's usage percentage (${usage}%).
+If making an offer, ask "Would you like to proceed?" and DO NOT mention a checkout button.
+If the customer accepted (intent=accept), tell them a checkout button is provided below (except for 'pause').`;
+  }
+
   const sysMsg = `You are a billing retention agent.
 Intent: ${state.intent}. Action: ${state.decision?.action}.
 DO NOT include any links or URLs.
-${state.decision?.action === 'pause' || state.decision?.action === 'escalate' ? '' : `You MUST explicitly state the original plan price (${priceStr}) and the new final amount (${finalAmount ? formatDollars(finalAmount) : priceStr}) in your message.`}
-Mention the customer's usage percentage (${usage}%).
-If making an offer, ask "Would you like to proceed?" and DO NOT mention a checkout button.
-If the customer accepted (intent=accept), tell them a checkout button is provided below (except for 'pause').
-Compose a polite response to the customer based on the action. If escalating, tell them exactly: "Your account has been flagged for our billing team, and a specialist will follow up with you by email shortly."`;
+${guidance}
+Compose a polite response to the customer based on the action.`;
 
   let response = await llm.invoke([{ role: 'system', content: sysMsg }, ...state.messages]);
   let finalMessages = state.messages.concat([response]);
@@ -176,6 +192,35 @@ Compose a polite response to the customer based on the action. If escalating, te
   if (ok && lower_tier_available && /(lowest|unable to offer|can't go lower|cannot go lower)/i.test(lastMsg)) {
     ok = false;
     reason = 'claimed lowest when lower tier exists';
+  }
+
+  if (ok && state.intent !== 'escalate' && state.decision?.action !== 'escalate') {
+    if (/flagged for our billing team|specialist will follow up/i.test(lastMsg)) {
+      ok = false;
+      reason = 'model hallucinated escalation text when not escalating';
+    }
+  }
+
+  if (ok && state.intent === 'question') {
+    const hasExplanation = /renew|subscription|Starter|plan|charge/i.test(lastMsg);
+    const claimsOriginalAsFinal = !!(state.decision?.discount_percent && /(new final amount is|final amount.*?\$\d+)/i.test(lastMsg) && lastMsg.includes(priceStr) && priceStr !== newStr);
+    const missingOffer = !!(finalAmount && state.decision?.discount_percent && !lastMsg.includes(newStr));
+    const leakedPrompt = /(restate|state that|inform the customer)/i.test(lastMsg);
+    if (!hasExplanation || claimsOriginalAsFinal || missingOffer || leakedPrompt) {
+      ok = false;
+      reason = 'question response failed invariants';
+    }
+  }
+
+  if (ok && state.intent === 'decline') {
+    const demandsRetryOrPayment = /(retry|process(ing)? your payment|payment.*remains due|due)/i.test(lastMsg);
+    const pauseCount = (lastMsg.match(/pause/gi) || []).length;
+    const isPolite = /understand|no problem|apologize|sorry|certainly|all right|alright|take your time|help/i.test(lastMsg);
+    const mentionsEscalate = /specialist|flagged for our billing team|billing team/i.test(lastMsg);
+    if (demandsRetryOrPayment || pauseCount !== 1 || !isPolite || mentionsEscalate) {
+      ok = false;
+      reason = 'decline response failed invariants';
+    }
   }
 
   // Is this the very first message in the conversation?
@@ -219,18 +264,17 @@ Compose a polite response to the customer based on the action. If escalating, te
       } else {
         lastMsg = `Your amount of ${newStr} is confirmed. A PayPal button is below.`;
       }
+    } else if (state.intent === 'question') {
+      if (finalAmount && state.decision?.discount_percent) {
+        lastMsg = `This charge is for your ${planName} subscription renewal. Your current offer of ${newStr} is still available, or you can pause your subscription. Would you like to proceed?`;
+      } else {
+        lastMsg = `This charge is for your ${planName} subscription renewal of ${priceStr}. Would you like to retry the payment at ${priceStr}, or would you prefer to pause your account?`;
+      }
+    } else if (state.intent === 'decline') {
+      lastMsg = `I understand you don't wish to proceed with this offer. You can also pause your account if you need more time.`;
     } else if (action === 'retry') {
       if (state.intent === 'cancel') {
         lastMsg = `Your ${planName} renewal of ${priceStr} didn't go through. Would you like to retry the payment at ${priceStr}, or would you prefer to pause your account?`;
-      } else if (state.intent === 'question') {
-        const prevOffer = prevOffers[prevOffers.length - 1];
-        if (prevOffer && prevOffer.amount_cents > 0) {
-          lastMsg = `This is for your ${planName} renewal. Our best offer is ${formatDollars(prevOffer.amount_cents)}, or you can pause your subscription.`;
-        } else {
-          lastMsg = `Your ${planName} renewal of ${priceStr} didn't go through. Would you like to retry the payment at ${priceStr}?`;
-        }
-      } else if (state.intent === 'decline') {
-        lastMsg = `I understand you don't wish to proceed with this offer. You can also pause your account if you need more time.`;
       } else {
         lastMsg = `Your ${planName} renewal of ${priceStr} didn't go through. Would you like to retry the payment at ${priceStr}?`;
       }
@@ -264,9 +308,17 @@ Compose a polite response to the customer based on the action. If escalating, te
 
   // Never send the same text twice in a row
   if (lastMsg === lastAgentText && lastMsg !== '') {
-    if (usage < 60) {
+    if (state.intent === 'decline') {
+      if (/I understand/i.test(lastAgentText)) {
+        lastMsg = `Understood. We're here to help whenever you're ready, or you can pause your subscription anytime.`;
+      } else {
+        lastMsg = `No problem at all. Please reach out if there's anything else we can do to assist.`;
+      }
+    } else if (usage < 60) {
       if (!/pause/i.test(lastMsg)) {
         lastMsg = lastMsg + ' You can also pause your account if you need more time.';
+      } else {
+        lastMsg = lastMsg + ' Please let us know if you have any questions.';
       }
     } else {
       lastMsg = lastMsg + ' Take your time — we\'re here if you change your mind.';
