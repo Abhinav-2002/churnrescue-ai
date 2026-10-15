@@ -87,6 +87,7 @@ export function validateProposal(
   const clamps: string[] = [];
   const keywords = opts.escalationKeywords ?? [];
 
+  // 1. Keyword escalation (dispute, chargeback, legal, fraud, etc.)
   if (keywords.length) {
     const reason_category = keywords[0];
     const severity = mapEscalationSeverity(reason_category);
@@ -94,19 +95,27 @@ export function validateProposal(
     return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps, reason_category, severity };
   }
 
-  let action: AgentAction | undefined;
-
+  // 2. Escalation on ladder exhaustion applies ONLY to price pushback (negotiate)
   const isLadderExhausted = (opts.pushbacks || 0) >= 3 || (
     (opts.pushbacks || 0) >= 2 &&
     opts.previousAmountCents !== undefined &&
     opts.previousAmountCents <= Math.round(ctx.plan_price_cents * 0.5)
   );
 
-  if (opts.intent !== 'accept' && isLadderExhausted) {
+  if (opts.intent === 'negotiate' && isLadderExhausted) {
     const reason_category: EscalationReason = 'repeat_pushback';
     const severity = mapEscalationSeverity(reason_category);
     return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps: ['ladder exhausted -> escalate'], reason_category, severity };
   }
+
+  // High usage: Bob's discount request is refused, the second pushback escalates
+  if (ctx.usage_percent >= 60 && opts.intent === 'negotiate' && (opts.pushbacks || 0) >= 2) {
+    const reason_category: EscalationReason = 'repeat_pushback';
+    const severity = mapEscalationSeverity(reason_category);
+    return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps: ['high usage second pushback -> escalate'], reason_category, severity };
+  }
+
+  let action: AgentAction | undefined;
 
   if (opts.intent === 'cancel') {
     if ((opts.cancelCount || 0) > 1) {
@@ -121,7 +130,40 @@ export function validateProposal(
       action = 'retry';
       clamps.push('cancel intent >= 60 usage -> retry with pause option');
     }
-  } else if (opts.intent === 'decline' || opts.intent === 'negotiate' || opts.intent === 'neutral' || opts.intent === 'propose') {
+  } else if (opts.intent === 'pause_request') {
+    action = 'pause';
+    clamps.push('pause_request intent -> pause');
+  } else if (opts.intent === 'question') {
+    clamps.push('question intent -> restate offer');
+    return {
+      action: 'retry',
+      final_amount_cents: null,
+      discount_percent: null,
+      target_plan: null,
+      creates_offer: false,
+      clamps
+    };
+  } else if (opts.intent === 'decline') {
+    if (opts.previousAmountCents !== undefined) {
+      clamps.push('decline intent -> no new discount offer');
+      return {
+        action: 'retry',
+        final_amount_cents: null,
+        discount_percent: null,
+        target_plan: null,
+        creates_offer: false,
+        clamps
+      };
+    } else {
+      if (ctx.usage_percent < 60) {
+        action = 'partial_credit';
+        clamps.push('decline intent < 60 usage -> partial_credit');
+      } else {
+        action = 'retry';
+        clamps.push('decline intent >= 60 usage -> retry');
+      }
+    }
+  } else if (opts.intent === 'negotiate' || opts.intent === 'neutral' || opts.intent === 'propose') {
     if (ctx.usage_percent < 60) {
       action = 'partial_credit';
       clamps.push(`${opts.intent} intent < 60 usage -> partial_credit`);

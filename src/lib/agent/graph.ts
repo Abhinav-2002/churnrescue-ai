@@ -22,7 +22,7 @@ import { getLlm } from './llm';
 
 export function nextLadderStep(previousStep: number | null, intent: string): number {
   if (previousStep === null) return 0;
-  if (intent === 'negotiate' || intent === 'decline') return Math.min(previousStep + 1, 2);
+  if (intent === 'negotiate') return Math.min(previousStep + 1, 2);
   return previousStep;
 }
 
@@ -54,7 +54,7 @@ async function decide(state: typeof GraphState.State, config: any) {
   const z = require('zod').z;
   const structuredLlm = llm.withStructuredOutput(
     z.object({
-      intent: z.enum(['negotiate', 'accept', 'decline', 'cancel', 'neutral', 'escalate']),
+      intent: z.enum(['negotiate', 'accept', 'decline', 'cancel', 'neutral', 'escalate', 'pause_request', 'question']),
       proposal: proposalSchema
     }),
     { name: 'decision' }
@@ -72,7 +72,7 @@ Lower discount tier available if customer pushes back: ${lower_tier_available}
 Rules:
 If usage_percent < 60, prefer partial_credit (first offer ≤20% discount), downgrade or pause before plain retry.
 If usage_percent >= 60, retry only (no discount). If they want to cancel, mention the full price and the pause option.
-Intents: 'cancel' if user wants to cancel, 'decline' if they reject an offer, 'escalate' ONLY if angry/abusive or demanding human/manager/legal.
+Intents: 'cancel' if user wants to cancel, 'pause_request' if user asks to pause/freeze subscription, 'question' if user asks a question about the charge or plan, 'decline' if they reject an offer, 'escalate' ONLY if angry/abusive or demanding human/manager/legal.
 `;
 
   const result = await structuredLlm.invoke([{ role: 'system', content: sysMsg }, ...state.messages]);
@@ -89,6 +89,14 @@ async function validate_guardrails(state: typeof GraphState.State) {
   const previousLadder = getPreviousLadderStep(state.customerId, state.billingEventId);
   const ladderStep = nextLadderStep(previousLadder, state.intent || 'neutral');
 
+  let pushbacks = ladderStep;
+  if ((state.customerContext?.usage_percent || 0) >= 60) {
+    const prevActionsRow = db.prepare(
+      `SELECT COUNT(*) as c FROM agent_actions WHERE customer_id = ? AND billing_event_id = ? AND action IN ('retry', 'partial_credit', 'escalate')`
+    ).get(state.customerId, state.billingEventId) as { c: number } | undefined;
+    pushbacks = prevActionsRow ? prevActionsRow.c : 0;
+  }
+
   const cancelCount = state.messages.filter(
     (m: any) => m._getType() === 'human' && /cancel|close|delete|terminate/i.test(m.content as string)
   ).length;
@@ -99,7 +107,7 @@ async function validate_guardrails(state: typeof GraphState.State) {
   const validated = validateProposal(
     state.rawProposal!,
     state.customerContext!,
-    { escalationKeywords: escalations, intent: state.intent || undefined, pushbacks: ladderStep, cancelCount, previousAmountCents }
+    { escalationKeywords: escalations, intent: state.intent || undefined, pushbacks, cancelCount, previousAmountCents }
   );
 
   if (state.intent === 'accept' && state.activeOfferId) {
@@ -145,8 +153,13 @@ Compose a polite response to the customer based on the action. If escalating, te
   let lastMsgRaw = finalMessages[finalMessages.length - 1].content as string;
   let lastMsg = sanitizeReply(lastMsgRaw);
 
+  const db = getDb();
   const required = state.decision?.final_amount_cents ?? null;
-  const allowed = state.customerContext?.plan_price_cents ? [state.customerContext.plan_price_cents] : [];
+  const prevOffers = db.prepare(`SELECT amount_cents FROM offers WHERE customer_id = ? AND billing_event_id = ?`).all(state.customerId, state.billingEventId) as { amount_cents: number }[];
+  const allowed = [
+    ...(state.customerContext?.plan_price_cents ? [state.customerContext.plan_price_cents] : []),
+    ...prevOffers.map(o => o.amount_cents)
+  ];
 
   const pushbacks = state.ladderStep ?? 0;
 
@@ -165,7 +178,6 @@ Compose a polite response to the customer based on the action. If escalating, te
     reason = 'claimed lowest when lower tier exists';
   }
 
-  const db = getDb();
   // Is this the very first message in the conversation?
   const msgCountRow = db.prepare(`SELECT COUNT(*) as c FROM conversations WHERE customer_id = ? AND text != '[SYSTEM_CLAIM]'`).get(state.customerId) as { c: number };
   const isFirst = msgCountRow.c === 0;
@@ -210,6 +222,15 @@ Compose a polite response to the customer based on the action. If escalating, te
     } else if (action === 'retry') {
       if (state.intent === 'cancel') {
         lastMsg = `Your ${planName} renewal of ${priceStr} didn't go through. Would you like to retry the payment at ${priceStr}, or would you prefer to pause your account?`;
+      } else if (state.intent === 'question') {
+        const prevOffer = prevOffers[prevOffers.length - 1];
+        if (prevOffer && prevOffer.amount_cents > 0) {
+          lastMsg = `This is for your ${planName} renewal. Our best offer is ${formatDollars(prevOffer.amount_cents)}, or you can pause your subscription.`;
+        } else {
+          lastMsg = `Your ${planName} renewal of ${priceStr} didn't go through. Would you like to retry the payment at ${priceStr}?`;
+        }
+      } else if (state.intent === 'decline') {
+        lastMsg = `I understand you don't wish to proceed with this offer. You can also pause your account if you need more time.`;
       } else {
         lastMsg = `Your ${planName} renewal of ${priceStr} didn't go through. Would you like to retry the payment at ${priceStr}?`;
       }

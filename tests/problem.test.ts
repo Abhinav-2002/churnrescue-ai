@@ -53,7 +53,7 @@ describe('Problem Sequence', () => {
   it('drives the problem sequence and fails on invariants', async () => {
     const db = getDb();
     db.prepare('UPDATE customers SET status = ? WHERE id = ?').run('at_risk', 'c_1');
-    // c_1 is Starter, 5% usage by default. Let's make it 30% usage to match problem
+    // c_1 is Starter, 30% usage (explicitly ensured for test isolation)
     db.prepare('UPDATE customers SET usage_percent = 30 WHERE id = ?').run('c_1');
     db.prepare('INSERT INTO billing_events (id, customer_id, type, amount_cents, status) VALUES (?, ?, ?, ?, ?)').run('be_1', 'c_1', 'renewal', 2500, 'failed');
 

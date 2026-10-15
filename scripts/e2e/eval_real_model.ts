@@ -1,4 +1,21 @@
-// E2E Script to evaluate the real model behavior.
+/**
+ * E2E Evaluation Script: Real Model Run
+ *
+ * Runs a multi-turn conversation sequence (Turns 0 to 2) against the live Gemini model
+ * (configured via LLM_MODEL) to evaluate real model output, classification, and guardrails.
+ *
+ * Guarded by RUN_REAL_EVAL=1 to prevent accidental API credit spend.
+ * Usage:
+ *   $env:RUN_REAL_EVAL="1"; npx tsx scripts/e2e/eval_real_model.ts
+ */
+
+if (process.env.RUN_REAL_EVAL !== '1') {
+  console.error('Error: scripts/e2e/eval_real_model.ts makes real LLM API calls and spends API credits.');
+  console.error('To run this script, set the environment variable RUN_REAL_EVAL=1.');
+  console.error('Example (PowerShell): $env:RUN_REAL_EVAL="1"; npx tsx scripts/e2e/eval_real_model.ts');
+  process.exit(1);
+}
+
 import { getDb, seedDb } from '../../src/lib/db';
 import { graph } from '../../src/lib/agent/graph';
 import { HumanMessage, AIMessage } from '@langchain/core/messages';

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { getDb } from '../src/lib/db';
 import { GET, auditOffer, classifyEscalationReason } from '../src/app/api/dashboard/metrics/route';
+import { rateLimit, LIMITS } from '../src/lib/rate-limit';
 
 describe('Metrics Endpoint v2', () => {
   beforeEach(() => {
@@ -209,16 +210,15 @@ describe('Metrics Endpoint v2', () => {
   });
 
   it('rate limit 429', async () => {
-    const limit = 300; // LIMITS.dashboardMetrics.globalPerWindow
+    const limit = LIMITS.dashboardMetrics.globalPerWindow;
     for (let i = 0; i < limit; i++) {
-      const r = await GET(await mockRequest()) as Response;
-      if (r.status === 429) {
-        throw new Error('Hit limit too early');
-      }
+      const req = await mockRequest();
+      const blocked = rateLimit(req, LIMITS.dashboardMetrics);
+      expect(blocked).toBeNull();
     }
     const res = await GET(await mockRequest()) as Response;
     expect(res.status).toBe(429);
-  }, 15000);
+  });
 
   it('an exception returns only a short code', async () => {
     const db = getDb();
@@ -525,16 +525,15 @@ describe('Metrics Endpoint v2', () => {
   });
 
   it('19. rate limiting works', async () => {
-    const limit = 300;
+    const limit = LIMITS.dashboardMetrics.globalPerWindow;
     for (let i = 0; i < limit; i++) {
-      const r = await GET(await mockRequest()) as Response;
-      if (r.status === 429) {
-        throw new Error('Hit limit prematurely');
-      }
+      const req = await mockRequest();
+      const blocked = rateLimit(req, LIMITS.dashboardMetrics);
+      expect(blocked).toBeNull();
     }
     const res = await GET(await mockRequest()) as Response;
     expect(res.status).toBe(429);
-  }, 15000);
+  });
 
   it('20. error responses expose only the approved short error code and no sensitive details', async () => {
     const db = getDb();

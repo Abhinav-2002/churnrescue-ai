@@ -315,9 +315,11 @@ export async function GET(req: Request) {
       let details: any = {};
       try { details = JSON.parse(a.details_json); } catch(e) {}
 
-      if (!latestClampedExample && details.proposed_discount_percent != null && details.approved_discount_percent != null) {
-        if (details.proposed_discount_percent > details.approved_discount_percent) {
+      if (!latestClampedExample) {
+        if (details.proposed_discount_percent != null && details.approved_discount_percent != null && details.proposed_discount_percent > details.approved_discount_percent) {
           latestClampedExample = `Model proposed ${details.proposed_discount_percent}%, code allowed ${details.approved_discount_percent}%`;
+        } else if (details.clamps && details.clamps.length > 0) {
+          latestClampedExample = details.clamps[0];
         }
       }
 

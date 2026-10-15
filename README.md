@@ -14,8 +14,11 @@ Required variables for deployment:
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Prerequisites
-- **Node.js**: Node 22 or newer is required.
-- If you are developing on Windows, `better-sqlite3` requires Visual Studio Build Tools with the "Desktop development with C++" workload so `node-gyp` can compile the module during `npm ci`.
+- **Node.js**: Node 22 or newer is required (`>=22`).
+- **Native C++ Build Tools (`better-sqlite3`)**:
+  - `better-sqlite3` compiles native C++ bindings using `node-gyp` during `npm ci` / `npm install`.
+  - **Native Windows**: You must install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and select the **"Desktop development with C++"** workload (including MSVC v143 and Windows 10/11 SDK). Python 3.10+ must also be available on PATH.
+  - **Alternative Development Environments**: If you prefer not to install the native Windows C++ toolchain, run the project inside **WSL2** (Windows Subsystem for Linux, Ubuntu) with `build-essential` installed, or in a **Docker** container based on `node:22-bookworm` or `node:22-alpine`.
 
 ## Getting Started
 

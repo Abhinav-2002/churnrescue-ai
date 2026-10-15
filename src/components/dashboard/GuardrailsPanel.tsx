@@ -42,7 +42,7 @@ export function GuardrailsPanel({
         <div>
           <CardTitle>Autonomous Guardrail Audit</CardTitle>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Deterministic rule enforcement & invariant monitoring
+            Deterministic rule enforcement &amp; invariant monitoring (discounts set strictly by code concession ladder; model cannot price)
           </p>
         </div>
 
@@ -109,7 +109,7 @@ export function GuardrailsPanel({
             </div>
           </div>
           <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 leading-tight">
-            Decisions where a proposed discount was lowered to stay within policy limits.
+            Decisions where discount was clamped by code ladder rules (model cannot set prices).
           </div>
         </div>
 
@@ -123,7 +123,7 @@ export function GuardrailsPanel({
             </div>
           </div>
           <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 leading-tight">
-            The code replaced the model&apos;s proposed action with a retry.
+            High usage or policy rules enforced retry at full plan price.
           </div>
         </div>
 
