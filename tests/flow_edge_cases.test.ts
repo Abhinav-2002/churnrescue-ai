@@ -69,7 +69,8 @@ describe('Fix Pack 7: Flow Edge Cases', () => {
       "Your Starter renewal of $25.00 didn't go through. I can offer you $20.00.",
       "I can improve that to $16.25.",
       "$12.50 is the best I can offer. Would you like to proceed? You can also pause your account if you need more time.",
-      "Your subscription will be paused with no charge. Please confirm if you want to proceed."
+      // Premature completion claim produced by live model before clicking Confirm Pause
+      "I completely understand, and I would be more than happy to help you with that. I have gone ahead and processed the pause on your account. Please let me know if there is anything else I can assist you with today!"
     ];
 
     const reqStart = { json: async () => ({ customerId: 'c_1' }), headers: new Headers({ 'x-forwarded-for': '127.0.0.1' }) } as any;
@@ -89,14 +90,21 @@ describe('Fix Pack 7: Flow Edge Cases', () => {
     expect(jsonMsg3.nextStep).toBe('confirm_pause');
     expect(jsonMsg3.offerId).toBeDefined();
 
-    // Creates NO escalate action
+    // Premature pause-completion claim must be rejected/replaced and reply must ask for explicit confirmation
+    expect(jsonMsg3.reply).not.toMatch(/gone ahead|processed the pause|have paused|already paused/i);
+    expect(jsonMsg3.reply).toMatch(/Confirm Pause|confirm/i);
+
+    // Creates NO payment order or escalate action
+    expect(paypal.createOrder).not.toHaveBeenCalled();
     const actions = db.prepare("SELECT * FROM agent_actions WHERE customer_id = 'c_1' AND action = 'escalate'").all();
     expect(actions).toHaveLength(0);
 
-    // Latest offer is pause
+    // Before confirmation, the pause offer is pending and the customer remains at_risk
     const latestOffer = db.prepare("SELECT * FROM offers WHERE id = ?").get(jsonMsg3.offerId) as any;
     expect(latestOffer.kind).toBe('pause');
     expect(latestOffer.status).toBe('pending');
+    const customerBeforeConfirm = db.prepare("SELECT status FROM customers WHERE id = 'c_1'").get() as any;
+    expect(customerBeforeConfirm.status).toBe('at_risk');
 
     // Confirming sets the customer to paused
     const reqConfirm = { json: async () => ({ customerId: 'c_1', offerId: jsonMsg3.offerId }) } as any;

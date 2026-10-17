@@ -149,7 +149,7 @@ DO NOT ask to retry payment or process any payment. DO NOT state that any paymen
     guidance = `Explain that this charge is for their ${planName} subscription renewal.
 ${finalAmount && state.decision?.discount_percent ? `State that their current offer of ${newStr} is still available, or they can pause their subscription. Ask "Would you like to proceed?". DO NOT claim that the original price (${priceStr}) is the new final amount.` : `State that their renewal is ${priceStr} and that they can retry the payment or pause their subscription.`}`;
   } else if (state.decision?.action === 'pause') {
-    guidance = `Confirm that their subscription can be paused with no charge.`;
+    guidance = `Tell the customer that their subscription can be paused with no charge, and ask them to click Confirm Pause below to proceed. Make clear that their subscription has NOT been paused yet until they confirm. DO NOT claim that you have already processed or paused the account.`;
   } else {
     guidance = `You MUST explicitly state the original plan price (${priceStr}) and the new final amount (${finalAmount ? formatDollars(finalAmount) : priceStr}) in your message.
 Mention the customer's usage percentage (${usage}%).
@@ -223,6 +223,15 @@ Compose a polite response to the customer based on the action.`;
     }
   }
 
+  if (ok && state.decision?.action === 'pause' && !(state.intent === 'accept' && state.activeOfferId)) {
+    const claimsAlreadyPaused = /(gone ahead|processed the pause|have paused|already paused|is now paused|has been paused(?!\s+yet))/i.test(lastMsg);
+    const asksForConfirmation = /confirm/i.test(lastMsg);
+    if (claimsAlreadyPaused || !asksForConfirmation) {
+      ok = false;
+      reason = 'pause response failed confirmation invariants';
+    }
+  }
+
   // Is this the very first message in the conversation?
   const msgCountRow = db.prepare(`SELECT COUNT(*) as c FROM conversations WHERE customer_id = ? AND text != '[SYSTEM_CLAIM]'`).get(state.customerId) as { c: number };
   const isFirst = msgCountRow.c === 0;
@@ -279,7 +288,7 @@ Compose a polite response to the customer based on the action.`;
         lastMsg = `Your ${planName} renewal of ${priceStr} didn't go through. Would you like to retry the payment at ${priceStr}?`;
       }
     } else if (action === 'pause') {
-      lastMsg = `Your subscription will be paused with no charge. Please confirm if you want to proceed.`;
+      lastMsg = `I can help you pause your subscription with no charge. Please click Confirm Pause below to proceed. Your subscription has not been paused yet.`;
     } else if (action === 'downgrade') {
       lastMsg = `We can move you to the ${state.decision?.target_plan || 'lower'} plan for ${newStr}. Would you like to proceed?`;
     } else {
