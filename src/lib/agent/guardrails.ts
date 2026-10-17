@@ -5,15 +5,44 @@ import { extractDollarAmounts, formatDollars } from '../money';
 export const ACTIONS = ['retry', 'partial_credit', 'downgrade', 'pause', 'escalate'] as const;
 export type AgentAction = (typeof ACTIONS)[number];
 
+export const ESCALATION_REASONS = [
+  'dispute',
+  'chargeback',
+  'legal',
+  'fraud',
+  'human_request',
+  'anger',
+  'repeat_cancel',
+  'repeat_pushback',
+  'other',
+] as const;
+export type EscalationReason = (typeof ESCALATION_REASONS)[number];
+
+export function mapEscalationSeverity(reason: EscalationReason): 'High' | 'Medium' | 'Low' {
+  switch (reason) {
+    case 'dispute':
+    case 'chargeback':
+    case 'legal':
+    case 'fraud':
+      return 'High';
+    case 'human_request':
+    case 'anger':
+    case 'other':
+      return 'Medium';
+    case 'repeat_cancel':
+    case 'repeat_pushback':
+      return 'Low';
+    default:
+      return 'Medium';
+  }
+}
+
 export const PARTIAL_CREDIT_MAX_USAGE_EXCLUSIVE = 60;
 export const MAX_DISCOUNT_PERCENT = 50;
 export const MIN_CHARGE_CENTS = 100;
 export const OFFER_TTL_MS = 30 * 60 * 1000;
 
 export const proposalSchema = z.object({
-  action: z.enum(ACTIONS).describe('The recovery action to propose'),
-  discount_percent: z.number().optional().describe('Only for partial_credit: percentage off the current plan price (whole number)'),
-  target_plan: z.string().optional().describe('Only for downgrade: name of a cheaper plan'),
   message_tone_notes: z.string().optional().describe('Short notes on tone for the customer message'),
   reasoning: z.string().describe('One or two sentences explaining the choice'),
 });
@@ -32,18 +61,20 @@ export interface ValidatedDecision {
   target_plan: string | null;
   creates_offer: boolean;
   clamps: string[];
+  reason_category?: EscalationReason | null;
+  severity?: 'High' | 'Medium' | 'Low' | null;
 }
 
-const ESCALATION_PATTERNS: { label: string; re: RegExp }[] = [
+const ESCALATION_PATTERNS: { label: EscalationReason; re: RegExp }[] = [
   { label: 'dispute', re: /\bdisput(e|es|ed|ing)\b/i },
   { label: 'chargeback', re: /\bcharge[\s-]?backs?\b/i },
   { label: 'legal', re: /\b(lawyers?|attorneys?|legal|lawsuits?|sue|suing|court|small claims)\b/i },
   { label: 'fraud', re: /\b(fraud|scam|scammed|stealing|theft)\b/i },
-  { label: 'human', re: /\b(human|real person|live person|representative|supervisor|manager|speak to (someone|somebody|a person)|talk to (someone|somebody|a person))\b/i },
+  { label: 'human_request', re: /\b(human|real person|live person|representative|supervisor|manager|speak to (someone|somebody|a person)|talk to (someone|somebody|a person))\b/i },
   { label: 'anger', re: /\b(furious|angry|outraged|livid|pissed|disgusted|unacceptable)\b/i },
 ];
 
-export function detectEscalation(texts: string | string[]): string[] {
+export function detectEscalation(texts: string | string[]): EscalationReason[] {
   const all = (Array.isArray(texts) ? texts : [texts]).join('\n');
   return ESCALATION_PATTERNS.filter((p) => p.re.test(all)).map((p) => p.label);
 }
@@ -51,48 +82,117 @@ export function detectEscalation(texts: string | string[]): string[] {
 export function validateProposal(
   proposal: Partial<Proposal> | null | undefined,
   ctx: CustomerContext,
-  opts: { escalationKeywords?: string[], intent?: string, pushbacks?: number, cancelCount?: number } = {},
+  opts: { escalationKeywords?: EscalationReason[], intent?: string, pushbacks?: number, cancelCount?: number, previousAmountCents?: number } = {},
 ): ValidatedDecision {
   const clamps: string[] = [];
   const keywords = opts.escalationKeywords ?? [];
 
+  // 1. Keyword escalation (dispute, chargeback, legal, fraud, etc.)
   if (keywords.length) {
-    if (proposal?.action !== 'escalate') clamps.push(`forced escalate by keyword rule: ${keywords.join(',')}`);
-    return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps };
+    const reason_category = keywords[0];
+    const severity = mapEscalationSeverity(reason_category);
+    if (opts.intent !== 'escalate') clamps.push(`forced escalate by keyword rule: ${keywords.join(',')}`);
+    return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps, reason_category, severity };
   }
 
-  let action = proposal?.action;
-  
+  // 2. Escalation on ladder exhaustion applies ONLY to price pushback (negotiate)
+  const isLadderExhausted = (opts.pushbacks || 0) >= 3 || (
+    (opts.pushbacks || 0) >= 2 &&
+    opts.previousAmountCents !== undefined &&
+    opts.previousAmountCents <= Math.round(ctx.plan_price_cents * 0.5)
+  );
+
+  if (opts.intent === 'negotiate' && isLadderExhausted) {
+    const reason_category: EscalationReason = 'repeat_pushback';
+    const severity = mapEscalationSeverity(reason_category);
+    return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps: ['ladder exhausted -> escalate'], reason_category, severity };
+  }
+
+  // High usage: Bob's discount request is refused, the second pushback escalates
+  if (ctx.usage_percent >= 60 && opts.intent === 'negotiate' && (opts.pushbacks || 0) >= 2) {
+    const reason_category: EscalationReason = 'repeat_pushback';
+    const severity = mapEscalationSeverity(reason_category);
+    return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps: ['high usage second pushback -> escalate'], reason_category, severity };
+  }
+
+  let action: AgentAction | undefined;
+
   if (opts.intent === 'cancel') {
+    if ((opts.cancelCount || 0) > 1) {
+      const reason_category: EscalationReason = 'repeat_cancel';
+      const severity = mapEscalationSeverity(reason_category);
+      return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps: ['repeat cancel -> escalate'], reason_category, severity };
+    }
     if (ctx.usage_percent < 60) {
       action = 'pause';
       clamps.push('cancel intent < 60 usage -> pause');
     } else {
-      if ((opts.cancelCount || 0) > 1) {
-        return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps: ['cancel intent >= 60 usage twice -> escalate'] };
+      action = 'retry';
+      clamps.push('cancel intent >= 60 usage -> retry with pause option');
+    }
+  } else if (opts.intent === 'pause_request') {
+    action = 'pause';
+    clamps.push('pause_request intent -> pause');
+  } else if (opts.intent === 'question') {
+    clamps.push('question intent -> preserve existing offer');
+    const existingAmount = opts.previousAmountCents !== undefined ? opts.previousAmountCents : Math.max(ctx.plan_price_cents, MIN_CHARGE_CENTS);
+    return {
+      action: opts.previousAmountCents !== undefined && ctx.usage_percent < 60 ? 'partial_credit' : 'retry',
+      final_amount_cents: existingAmount,
+      discount_percent: opts.previousAmountCents !== undefined && ctx.plan_price_cents > 0
+        ? Math.round(((ctx.plan_price_cents - existingAmount) / ctx.plan_price_cents) * 100)
+        : null,
+      target_plan: null,
+      creates_offer: false,
+      clamps
+    };
+  } else if (opts.intent === 'decline') {
+    if (opts.previousAmountCents !== undefined) {
+      clamps.push('decline intent -> no new discount offer');
+      return {
+        action: 'retry',
+        final_amount_cents: null,
+        discount_percent: null,
+        target_plan: null,
+        creates_offer: false,
+        clamps
+      };
+    } else {
+      if (ctx.usage_percent < 60) {
+        action = 'partial_credit';
+        clamps.push('decline intent < 60 usage -> partial_credit');
       } else {
         action = 'retry';
-        clamps.push('cancel intent >= 60 usage -> retry with pause option');
+        clamps.push('decline intent >= 60 usage -> retry');
       }
     }
-  } else if (opts.intent === 'decline') {
+  } else if (opts.intent === 'negotiate' || opts.intent === 'neutral' || opts.intent === 'propose') {
     if (ctx.usage_percent < 60) {
-      action = 'pause';
-      clamps.push('decline intent < 60 usage -> pause');
+      action = 'partial_credit';
+      clamps.push(`${opts.intent} intent < 60 usage -> partial_credit`);
     } else {
       action = 'retry';
-      clamps.push('decline intent >= 60 usage -> polite retry');
+      clamps.push(`${opts.intent} intent >= 60 usage -> retry`);
     }
+  } else if (opts.intent === 'escalate') {
+    action = 'escalate';
+  } else if (opts.intent === 'downgrade') {
+    action = 'downgrade';
+  } else {
+    action = 'retry';
   }
 
-  if (!action || !ACTIONS.includes(action)) {
-    clamps.push(`invalid action ${JSON.stringify(action)} -> retry`);
+  if (!action || !ACTIONS.includes(action as AgentAction)) {
+    clamps.push(`invalid action -> retry`);
     return retry(ctx, clamps);
   }
 
   switch (action) {
-    case 'escalate':
-      return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps };
+    case 'escalate': {
+      const reason_category: EscalationReason = 'other';
+      const severity = mapEscalationSeverity(reason_category);
+      return { action: 'escalate', final_amount_cents: null, discount_percent: null, target_plan: null, creates_offer: false, clamps, reason_category, severity };
+    }
     case 'retry':
       return retry(ctx, clamps);
     case 'pause':
@@ -110,21 +210,19 @@ export function validateProposal(
       if (final < MIN_CHARGE_CENTS) {
         final = MIN_CHARGE_CENTS;
       }
+      if (opts.previousAmountCents !== undefined) {
+        final = Math.min(final, opts.previousAmountCents);
+      }
       return { action: 'partial_credit', final_amount_cents: final, discount_percent: pct, target_plan: null, creates_offer: true, clamps };
     }
     case 'downgrade': {
-      const requested = findPlan(proposal?.target_plan);
-      let target = requested && requested.priceCents < ctx.plan_price_cents ? requested : undefined;
-      if (!target) {
-        const lower = nextLowerPlan(ctx.plan_price_cents);
-        if (!lower) return retry(ctx, clamps);
-        target = lower;
-      }
+      const lower = nextLowerPlan(ctx.plan_price_cents);
+      if (!lower) return retry(ctx, clamps);
       return {
         action: 'downgrade',
-        final_amount_cents: Math.max(target.priceCents, MIN_CHARGE_CENTS),
+        final_amount_cents: Math.max(lower.priceCents, MIN_CHARGE_CENTS),
         discount_percent: null,
-        target_plan: target.name,
+        target_plan: lower.name,
         creates_offer: true,
         clamps,
       };

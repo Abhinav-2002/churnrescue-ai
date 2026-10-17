@@ -103,7 +103,8 @@ export async function POST(req: Request) {
     }
 
     const lastMsg = out.messages[out.messages.length - 1].content;
-    const latestOffer = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customerId) as any;
+    // D11: created_at has 1-second resolution; rowid breaks ties deterministically.
+    const latestOffer = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(customerId) as any;
     
     let nextStep = 'none';
     let responseObj: any = { reply: lastMsg, nextStep };

@@ -22,7 +22,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
     }
 
-    const convs = db.prepare('SELECT role, text FROM conversations WHERE customer_id = ? ORDER BY created_at ASC, id ASC').all(customerId) as any[];
+    const convs = db.prepare("SELECT role, text FROM conversations WHERE customer_id = ? AND text != '[SYSTEM_CLAIM]' ORDER BY created_at ASC, id ASC").all(customerId) as any[];
     
     let nextStep = 'none';
     let offerId = null;
@@ -64,12 +64,14 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       customer: {
+        id: customer.id,
+        name: customer.name,
         status: customer.status
       },
       messages: convs,
       nextStep,
       ...(offerId && { offerId }),
-      ...(orderId && { orderId }),
+      ...(orderId && { orderId, paypalOrderId: orderId }),
       ...(amountCents !== null && { amountCents }),
       ...(recoveredAmountCents !== null && { recoveredAmountCents })
     });

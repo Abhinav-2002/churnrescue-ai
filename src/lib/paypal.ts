@@ -42,11 +42,11 @@ export async function getAccessToken(): Promise<string> {
   return cachedAccessToken!;
 }
 
-export async function createOrder(amountCents: number, currency: string = 'USD', referenceId?: string) {
+export async function createOrder(amountCents: number, currency: string = 'USD', referenceId?: string, customRequestId?: string) {
   const baseURL = process.env.PAYPAL_BASE_URL;
   const accessToken = await getAccessToken();
   const value = (amountCents / 100).toFixed(2);
-  const requestId = crypto.randomUUID();
+  const requestId = customRequestId || crypto.randomUUID();
 
   const payload = {
     intent: 'CAPTURE',

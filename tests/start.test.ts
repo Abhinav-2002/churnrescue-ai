@@ -45,7 +45,7 @@ describe('Start Endpoint', () => {
     
     expect(customerMsgs.length).toBe(0);
 
-    const agentMsgs = msgs.filter(m => m.role === 'agent');
+    const agentMsgs = msgs.filter(m => m.role === 'agent' && m.text !== '[SYSTEM_CLAIM]');
     // First message: usage 45% < 60, so must be a credit offer
     expect(agentMsgs[0].text).toContain('Pro');
     expect(agentMsgs[0].text).toContain('$50.00');
@@ -69,7 +69,7 @@ describe('Start Endpoint', () => {
     await startPOST(req);
 
     const msgs = db.prepare('SELECT * FROM conversations WHERE customer_id = ? ORDER BY created_at ASC').all('c_4') as any[];
-    const agentMsgs = msgs.filter(m => m.role === 'agent');
+    const agentMsgs = msgs.filter(m => m.role === 'agent' && m.text !== '[SYSTEM_CLAIM]');
     
     expect(agentMsgs[agentMsgs.length - 1].text).toBe(mockText);
   });

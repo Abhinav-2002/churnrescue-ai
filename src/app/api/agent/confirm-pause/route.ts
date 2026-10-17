@@ -3,10 +3,20 @@ import { getDb } from '@/lib/db';
 
 export async function POST(req: Request) {
   try {
-    const { customerId, offerId } = await req.json();
-    if (!customerId || !offerId) return NextResponse.json({ error: 'Missing params' }, { status: 400 });
+    const body = await req.json();
+    const customerId = body?.customerId;
+    let offerId = body?.offerId;
+    if (!customerId) return NextResponse.json({ error: 'Missing params' }, { status: 400 });
 
     const db = getDb();
+    if (!offerId) {
+      const activePauseOffer = db.prepare(`SELECT id FROM offers WHERE customer_id = ? AND kind = 'pause' AND status IN ('pending', 'accepted') ORDER BY rowid DESC LIMIT 1`).get(customerId) as any;
+      if (activePauseOffer) {
+        offerId = activePauseOffer.id;
+      }
+    }
+    if (!offerId) return NextResponse.json({ error: 'Offer not found' }, { status: 404 });
+
     const offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(offerId) as any;
     if (!offer || offer.customer_id !== customerId) return NextResponse.json({ error: 'Offer not found' }, { status: 404 });
     
