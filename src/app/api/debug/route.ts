@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+const SENSITIVE_HEADER_NAMES = new Set(['authorization', 'cookie', 'set-cookie', 'x-api-key', 'proxy-authorization']);
+
 export async function GET(request: NextRequest) {
   if (process.env.DEBUG_HEADERS !== '1') {
-    return new NextResponse('Not found', { status: 404 });
+    return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
 
   const headersObj: Record<string, string> = {};
   request.headers.forEach((value, key) => {
-    headersObj[key] = value;
+    if (!SENSITIVE_HEADER_NAMES.has(key.toLowerCase())) {
+      headersObj[key] = value;
+    }
   });
 
   return NextResponse.json({
@@ -21,3 +25,4 @@ export async function GET(request: NextRequest) {
     }
   });
 }
+

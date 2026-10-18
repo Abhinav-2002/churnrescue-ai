@@ -19,6 +19,29 @@ const GraphState = Annotation.Root({
 });
 
 import { getLlm } from './llm';
+import { AIMessage } from '@langchain/core/messages';
+import { logRequest } from '../logger';
+
+async function callWithTimeoutAndRetry<T>(
+  fn: () => Promise<T>,
+  timeoutMs: number = Number(process.env.LLM_TIMEOUT_MS) || 15000,
+  retries: number = 1
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await Promise.race<T>([
+        fn(),
+        new Promise<T>((_, reject) =>
+          setTimeout(() => reject(new Error(`LLM call timed out after ${timeoutMs}ms`)), timeoutMs)
+        ),
+      ]);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
 
 export function nextLadderStep(previousStep: number | null, intent: string): number {
   if (previousStep === null) return 0;
@@ -33,6 +56,20 @@ function getPreviousLadderStep(customerId: string, billingEventId: string): numb
     `SELECT MAX(ladder_step) as ladder_step FROM offers WHERE customer_id = ? AND billing_event_id = ? AND kind = 'partial_credit' AND is_sample = 0`
   ).get(customerId, billingEventId) as { ladder_step: number | null } | undefined;
   return row && row.ladder_step !== null ? row.ladder_step : null;
+}
+
+function inferFallbackIntent(text: string, isFirstTurn: boolean): string {
+  if (isFirstTurn) return 'neutral';
+  if (detectEscalation(text).length > 0) return 'escalate';
+  if (/\b(pause|freeze|hold)\b/i.test(text)) return 'pause_request';
+  if (/\b(no thanks|not interested|don't want|do not want)\b/i.test(text)) return 'decline';
+  if (/\b(cancel|close|terminate|delete)\b/i.test(text)) return 'cancel';
+  if (/\?|(\b(what|why|when|how|explain)\b)/i.test(text) && !/\b(can you make it|lower|cheaper|discount)\b/i.test(text)) {
+    return 'question';
+  }
+  if (/\b(yes|okay|ok|sure|sounds good|proceed|accept|works for me)\b/i.test(text)) return 'accept';
+  if (/\b(lower|cheaper|afford|too much|expensive|discount|steep)\b|\$\d+/i.test(text)) return 'negotiate';
+  return 'neutral';
 }
 
 async function load_context(state: typeof GraphState.State) {
@@ -75,8 +112,32 @@ If usage_percent >= 60, retry only (no discount). If they want to cancel, mentio
 Intents: 'negotiate' if user asks for a lower price, counter-offers, or pushes back on price (e.g. "$10 i can afford", "can you make it lower", "still too much"), 'accept' if user agrees or accepts an offer, 'decline' if user rejects or says no without asking for a lower price (e.g. "no thanks", "not interested"), 'cancel' if user wants to cancel, 'pause_request' if user asks to pause/freeze subscription, 'question' if user asks a question about the charge or plan, 'escalate' ONLY if angry/abusive or demanding human/manager/legal.
 `;
 
-  const result = await structuredLlm.invoke([{ role: 'system', content: sysMsg }, ...state.messages]);
-  return { intent: result.intent, rawProposal: result.proposal };
+  const t0 = Date.now();
+  try {
+    const result = await callWithTimeoutAndRetry(() =>
+      structuredLlm.invoke([{ role: 'system', content: sysMsg }, ...state.messages])
+    );
+    return { intent: result.intent, rawProposal: result.proposal };
+  } catch (err) {
+    const lastText = String(state.messages[state.messages.length - 1]?.content || '');
+    const isFirstTurn = /Start the conversation proactively/i.test(lastText);
+    const fallbackIntent = inferFallbackIntent(lastText, isFirstTurn);
+    logRequest({
+      route: 'agent/graph/decide',
+      status: 200,
+      latency_ms: Date.now() - t0,
+      outcome_code: 'llm_fallback_used',
+      llm_latency_ms: Date.now() - t0,
+      meta: { fallbackIntent },
+    });
+    return {
+      intent: fallbackIntent,
+      rawProposal: {
+        reasoning: 'llm_fallback_used: deterministic fallback after model timeout/error',
+        message_tone_notes: 'polite',
+      },
+    };
+  }
 }
 
 async function validate_guardrails(state: typeof GraphState.State) {
@@ -163,7 +224,22 @@ DO NOT include any links or URLs.
 ${guidance}
 Compose a polite response to the customer based on the action.`;
 
-  let response = await llm.invoke([{ role: 'system', content: sysMsg }, ...state.messages]);
+  const tCompose = Date.now();
+  let response: AIMessage;
+  try {
+    response = (await callWithTimeoutAndRetry(() =>
+      llm.invoke([{ role: 'system', content: sysMsg }, ...state.messages])
+    )) as AIMessage;
+  } catch {
+    logRequest({
+      route: 'agent/graph/compose_message',
+      status: 200,
+      latency_ms: Date.now() - tCompose,
+      outcome_code: 'llm_fallback_used',
+      llm_latency_ms: Date.now() - tCompose,
+    });
+    response = new AIMessage('[LLM_FALLBACK]');
+  }
   let finalMessages = state.messages.concat([response]);
 
   let lastMsgRaw = finalMessages[finalMessages.length - 1].content as string;

@@ -342,3 +342,25 @@ export function loadSampleHistory(): { loaded: number } {
   return { loaded: sampleSpecs.length };
 }
 
+export function closeDb(): void {
+  if (globalThis._sqliteDb) {
+    try {
+      globalThis._sqliteDb.close();
+    } catch {
+      // ignore if already closed
+    }
+    globalThis._sqliteDb = undefined;
+  }
+}
+
+declare global {
+  var _sigtermRegistered: boolean | undefined;
+}
+
+if (typeof process !== 'undefined' && typeof process.once === 'function' && !globalThis._sigtermRegistered) {
+  globalThis._sigtermRegistered = true;
+  process.once('SIGTERM', () => {
+    closeDb();
+  });
+}
+

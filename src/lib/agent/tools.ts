@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getDb } from '../db';
 import { PayPalAgentToolkit } from '@paypal/agent-toolkit/langchain';
 import { centsToDollarString } from '../money';
+import { resolveAppBaseUrl } from '../config';
 import 'dotenv/config';
 
 const toolkit = new PayPalAgentToolkit({
@@ -39,6 +40,7 @@ export const create_recovery_order = tool(
     }
 
     try {
+      const appBaseUrl = resolveAppBaseUrl();
       const toolkitInput = {
         currencyCode: 'USD',
         items: [{
@@ -47,8 +49,8 @@ export const create_recovery_order = tool(
           itemCost: Number(centsToDollarString(offer.amount_cents)),
           itemTotal: Number(centsToDollarString(offer.amount_cents))
         }],
-        returnUrl: 'https://example.com/return',
-        cancelUrl: 'https://example.com/cancel'
+        returnUrl: `${appBaseUrl}/return`,
+        cancelUrl: `${appBaseUrl}/cancel`
       };
       
       const resRaw = await toolkitCreateOrder.invoke(toolkitInput);

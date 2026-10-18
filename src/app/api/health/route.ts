@@ -1,7 +1,15 @@
 import { NextResponse } from 'next/server';
-import { getDb } from '@/lib/db';
 
 export async function GET() {
-  getDb();
-  return NextResponse.json({ status: 'ok', timestamp: new Date().toISOString() });
+  return NextResponse.json(
+    {
+      status: 'ok',
+      uptime_s: Math.round(process.uptime()),
+      timestamp: new Date().toISOString(),
+    },
+    {
+      status: 200,
+      headers: { 'Cache-Control': 'no-store' },
+    }
+  );
 }
