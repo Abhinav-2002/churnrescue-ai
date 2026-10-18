@@ -2,7 +2,7 @@
 
 **Release Date:** October 18, 2026  
 **Tag:** `v1.0.0` (superseding `v0.9-rc1`)  
-**Repository:** `https://github.com/chiragnahata/churnrescue-ai`
+**Repository:** `https://github.com/Abhinav-2002/churnrescue-ai`
 
 ---
 
