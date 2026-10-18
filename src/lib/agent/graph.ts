@@ -30,7 +30,7 @@ export const LADDER_PERCENTS = [20, 35, 50];
 
 function getPreviousLadderStep(customerId: string, billingEventId: string): number | null {
   const row = getDb().prepare(
-    `SELECT MAX(ladder_step) as ladder_step FROM offers WHERE customer_id = ? AND billing_event_id = ? AND kind = 'partial_credit'`
+    `SELECT MAX(ladder_step) as ladder_step FROM offers WHERE customer_id = ? AND billing_event_id = ? AND kind = 'partial_credit' AND is_sample = 0`
   ).get(customerId, billingEventId) as { ladder_step: number | null } | undefined;
   return row && row.ladder_step !== null ? row.ladder_step : null;
 }
@@ -43,7 +43,7 @@ async function load_context(state: typeof GraphState.State) {
     plan_price_cents: customer.plan_price_cents,
     usage_percent: customer.usage_percent
   };
-  const offer = db.prepare(`SELECT id FROM offers WHERE customer_id = ? AND status IN ('pending', 'accepted') ORDER BY rowid DESC LIMIT 1`).get(state.customerId) as any;
+  const offer = db.prepare(`SELECT id FROM offers WHERE customer_id = ? AND status IN ('pending', 'accepted') AND is_sample = 0 ORDER BY rowid DESC LIMIT 1`).get(state.customerId) as any;
   return { customerContext: context, activeOfferId: offer ? offer.id : null };
 }
 
@@ -92,7 +92,7 @@ async function validate_guardrails(state: typeof GraphState.State) {
   let pushbacks = ladderStep;
   if ((state.customerContext?.usage_percent || 0) >= 60) {
     const prevActionsRow = db.prepare(
-      `SELECT COUNT(*) as c FROM agent_actions WHERE customer_id = ? AND billing_event_id = ? AND action IN ('retry', 'partial_credit', 'escalate')`
+      `SELECT COUNT(*) as c FROM agent_actions WHERE customer_id = ? AND billing_event_id = ? AND action IN ('retry', 'partial_credit', 'escalate') AND is_sample = 0`
     ).get(state.customerId, state.billingEventId) as { c: number } | undefined;
     pushbacks = prevActionsRow ? prevActionsRow.c : 0;
   }
@@ -101,7 +101,7 @@ async function validate_guardrails(state: typeof GraphState.State) {
     (m: any) => m._getType() === 'human' && /cancel|close|delete|terminate/i.test(m.content as string)
   ).length;
 
-  const previousOffer = db.prepare(`SELECT amount_cents FROM offers WHERE customer_id = ? AND billing_event_id = ? ORDER BY rowid DESC LIMIT 1`).get(state.customerId, state.billingEventId) as any;
+  const previousOffer = db.prepare(`SELECT amount_cents FROM offers WHERE customer_id = ? AND billing_event_id = ? AND is_sample = 0 ORDER BY rowid DESC LIMIT 1`).get(state.customerId, state.billingEventId) as any;
   const previousAmountCents = previousOffer ? previousOffer.amount_cents : undefined;
 
   const validated = validateProposal(
@@ -171,7 +171,7 @@ Compose a polite response to the customer based on the action.`;
 
   const db = getDb();
   const required = state.decision?.final_amount_cents ?? null;
-  const prevOffers = db.prepare(`SELECT amount_cents FROM offers WHERE customer_id = ? AND billing_event_id = ?`).all(state.customerId, state.billingEventId) as { amount_cents: number }[];
+  const prevOffers = db.prepare(`SELECT amount_cents FROM offers WHERE customer_id = ? AND billing_event_id = ? AND is_sample = 0`).all(state.customerId, state.billingEventId) as { amount_cents: number }[];
   const allowed = [
     ...(state.customerContext?.plan_price_cents ? [state.customerContext.plan_price_cents] : []),
     ...prevOffers.map(o => o.amount_cents)
@@ -365,14 +365,14 @@ Compose a polite response to the customer based on the action.`;
 async function persist(state: typeof GraphState.State) {
   const db = getDb();
   if (state.intent === 'escalate' || state.decision?.action === 'escalate') {
-    db.prepare(`UPDATE offers SET status = 'superseded' WHERE customer_id = ? AND status IN ('pending', 'accepted')`).run(state.customerId);
+    db.prepare(`UPDATE offers SET status = 'superseded' WHERE customer_id = ? AND status IN ('pending', 'accepted') AND is_sample = 0`).run(state.customerId);
   } else if (state.decision?.creates_offer && !(state.intent === 'accept' && state.activeOfferId)) {
-    const existing = db.prepare(`SELECT * FROM offers WHERE customer_id = ? AND status IN ('pending', 'accepted') ORDER BY rowid DESC LIMIT 1`).get(state.customerId) as any;
+    const existing = db.prepare(`SELECT * FROM offers WHERE customer_id = ? AND status IN ('pending', 'accepted') AND is_sample = 0 ORDER BY rowid DESC LIMIT 1`).get(state.customerId) as any;
     if (existing && existing.kind === state.decision.action && existing.amount_cents === state.decision.final_amount_cents) {
       // Reuse current offer when kind and amount are unchanged
       state.activeOfferId = existing.id;
     } else {
-      db.prepare(`UPDATE offers SET status = 'superseded' WHERE customer_id = ? AND status IN ('pending', 'accepted')`).run(state.customerId);
+      db.prepare(`UPDATE offers SET status = 'superseded' WHERE customer_id = ? AND status IN ('pending', 'accepted') AND is_sample = 0`).run(state.customerId);
       const newOfferId = `off_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
       db.prepare(`

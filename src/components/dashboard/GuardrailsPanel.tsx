@@ -109,7 +109,7 @@ export function GuardrailsPanel({
             </div>
           </div>
           <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 leading-tight">
-            Decisions where a proposed discount was lowered to stay within policy limits.
+            Discounts deterministically assigned by the code concession ladder (20% &rarr; 35% &rarr; 50%); the model cannot propose prices.
           </div>
         </div>
 

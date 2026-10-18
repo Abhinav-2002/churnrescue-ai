@@ -7,10 +7,11 @@ This document defines the data contract, query parameters, metric definitions, a
 ## 1. Query Parameters & Caching
 
 - **Endpoint**: `GET /api/dashboard/metrics`
-- **Query Parameter**:
+- **Query Parameters**:
   - `days`: Accepted values are strictly `7`, `14`, or `30`.
   - Default: `14` (when omitted).
   - Validation: Any other value (e.g. `10`, `0`, `31`, `abc`) is strictly rejected with HTTP `400 Bad Request` and body `{"error": "invalid_query"}`.
+  - `include_sample`: Accepted values are `0` (default, live data only) or `1` (live + sample demo history). When `1` is passed, `kpis.includes_sample` is `true` and separate `live_*` and `sample_*` counters are reported in `kpis`.
 - **Caching & Transport**:
   - `Cache-Control: no-store` on all responses.
   - `ETag` (MD5 hex digest of the payload) is included in every HTTP 200 response.
@@ -76,12 +77,12 @@ Metrics are evaluated over two equal-length periods based on UTC time:
 
 ### 2.5 Guardrail Summary (`guardrail_summary`)
 Counts of deterministic code adjustments:
-- `pricing_adjustments`: Decisions where proposed discount exceeded ladder allowance or policy cap.
+- `pricing_adjustments`: Decisions where the deterministic code concession ladder (20% $\to$ 35% $\to$ 50%) assigned the discount tier (the LLM cannot propose discount percentages or prices).
 - `blocked_suggestions`: Suggestions forced to retry (e.g. partial credit requested when usage $\ge 60\%$).
 - `escalated_by_keyword`: Forced escalations triggered by keyword detection patterns.
 - `template_enforced`: Natural language generation bypassed in favor of deterministic fallback templates.
 - `total_checks`: Total count of `agent_actions` evaluated by the deterministic guardrail pipeline.
-- `latest_clamp_summary`: Formatted numerical summary of the most recent clamped proposal, e.g. `"Model proposed 50%, code allowed 20%"`.
+- `latest_clamp_summary`: Formatted numerical summary of the most recent code ladder assignment, e.g. `"Code ladder assigned 20% discount (step 0)"`.
 
 ---
 

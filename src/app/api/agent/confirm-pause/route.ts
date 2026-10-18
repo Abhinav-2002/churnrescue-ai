@@ -10,7 +10,7 @@ export async function POST(req: Request) {
 
     const db = getDb();
     if (!offerId) {
-      const activePauseOffer = db.prepare(`SELECT id FROM offers WHERE customer_id = ? AND kind = 'pause' AND status IN ('pending', 'accepted') ORDER BY rowid DESC LIMIT 1`).get(customerId) as any;
+      const activePauseOffer = db.prepare(`SELECT id FROM offers WHERE customer_id = ? AND kind = 'pause' AND status IN ('pending', 'accepted') AND is_sample = 0 ORDER BY rowid DESC LIMIT 1`).get(customerId) as any;
       if (activePauseOffer) {
         offerId = activePauseOffer.id;
       }
@@ -19,6 +19,7 @@ export async function POST(req: Request) {
 
     const offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(offerId) as any;
     if (!offer || offer.customer_id !== customerId) return NextResponse.json({ error: 'Offer not found' }, { status: 404 });
+    if (offer.is_sample === 1) return NextResponse.json({ error: 'sample_offer_not_allowed' }, { status: 400 });
     
     if (offer.kind !== 'pause') return NextResponse.json({ error: 'Not a pause offer' }, { status: 400 });
 

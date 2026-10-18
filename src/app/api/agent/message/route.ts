@@ -38,7 +38,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Conversation limit reached.' }, { status: 400 });
     }
 
-    const billingEvent = db.prepare(`SELECT id FROM billing_events WHERE customer_id = ? AND status = 'failed' ORDER BY created_at DESC LIMIT 1`).get(customerId) as any;
+    const billingEvent = db.prepare(`SELECT id FROM billing_events WHERE customer_id = ? AND status = 'failed' AND is_sample = 0 ORDER BY created_at DESC LIMIT 1`).get(customerId) as any;
     if (!billingEvent) {
       return NextResponse.json({ error: 'no_failed_billing_event' }, { status: 400 });
     }
@@ -79,7 +79,7 @@ export async function POST(req: Request) {
     } catch (e: any) {
       console.error('LLM Failure:', e);
       // fallback
-      const latestOffer = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customerId) as any;
+      const latestOffer = db.prepare('SELECT * FROM offers WHERE customer_id = ? AND is_sample = 0 ORDER BY created_at DESC, rowid DESC LIMIT 1').get(customerId) as any;
       let reply = 'I apologize, but I am experiencing technical difficulties. ';
       if (latestOffer && latestOffer.status === 'pending') {
         if (latestOffer.kind === 'pause') {
@@ -104,7 +104,7 @@ export async function POST(req: Request) {
 
     const lastMsg = out.messages[out.messages.length - 1].content;
     // D11: created_at has 1-second resolution; rowid breaks ties deterministically.
-    const latestOffer = db.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(customerId) as any;
+    const latestOffer = db.prepare('SELECT * FROM offers WHERE customer_id = ? AND is_sample = 0 ORDER BY created_at DESC, rowid DESC LIMIT 1').get(customerId) as any;
     
     let nextStep = 'none';
     let responseObj: any = { reply: lastMsg, nextStep };

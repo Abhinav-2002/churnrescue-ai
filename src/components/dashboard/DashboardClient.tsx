@@ -70,7 +70,7 @@ function getServerThemeSnapshot(): 'light' | 'dark' {
 }
 
 export function DashboardClient() {
-  const { setCustomerId } = useChat();
+  const { setCustomerId, openChatForCustomer } = useChat();
   const [isLive, setIsLive] = useState(true);
   const theme = React.useSyncExternalStore(subscribeTheme, getThemeSnapshot, getServerThemeSnapshot);
   const [secondsAgo, setSecondsAgo] = useState(0);
@@ -114,12 +114,19 @@ export function DashboardClient() {
 
 
   const [rangeDays, setRangeDays] = useState<7 | 14 | 30>(7);
+  const [includeSample, setIncludeSample] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+  const [guideBusyId, setGuideBusyId] = useState<string | null>(null);
+  const [guideStatusMsg, setGuideStatusMsg] = useState<string | null>(null);
   const [filterAction, setFilterAction] = useState<string | null>(null);
   const [filterStage, setFilterStage] = useState<string | null>(null);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const triggerRef = React.useRef<HTMLElement | null>(null);
 
-  const metricsUrl = useMemo(() => `/api/dashboard/metrics?days=${rangeDays}`, [rangeDays]);
+  const metricsUrl = useMemo(
+    () => `/api/dashboard/metrics?days=${rangeDays}${includeSample ? '&include_sample=1' : ''}`,
+    [rangeDays, includeSample]
+  );
 
   // Polling with v2 API
   const { data, error, loading, lastSuccess, isStale, retry } = useMetricsPolling(
@@ -127,6 +134,67 @@ export function DashboardClient() {
     3000,
     isLive
   );
+
+  const handleToggleSampleMode = async (nextIncludeSample: boolean) => {
+    if (nextIncludeSample && (data?.kpis?.sample_failed_events ?? 0) === 0) {
+      try {
+        await fetch('/api/demo/sample', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'load' }),
+        });
+      } catch {}
+    }
+    setIncludeSample(nextIncludeSample);
+  };
+
+  const handleResetCustomer = async (cId: string) => {
+    setGuideBusyId(cId);
+    setGuideStatusMsg(null);
+    try {
+      const res = await fetch('/api/demo/reset-customer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customerId: cId }),
+      });
+      if (res.ok) {
+        setGuideStatusMsg(`Reset ${cId} to healthy seed state (other customers untouched).`);
+        retry();
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setGuideStatusMsg(`Could not reset customer (${body.error || res.status}).`);
+      }
+    } catch {
+      setGuideStatusMsg('Network error resetting customer.');
+    } finally {
+      setGuideBusyId(null);
+    }
+  };
+
+  const handleSimulateAndOpen = async (cId: string) => {
+    setGuideBusyId(cId);
+    setGuideStatusMsg(null);
+    try {
+      const cust = data?.customers?.find((c) => c.id === cId);
+      if (!cust || cust.status === 'healthy') {
+        const res = await fetch('/api/simulate-failure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ customerId: cId }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setGuideStatusMsg(`Simulation notice: ${body.error || res.status}`);
+        }
+      }
+      openChatForCustomer(cId);
+      retry();
+    } catch {
+      setGuideStatusMsg('Network error starting simulation.');
+    } finally {
+      setGuideBusyId(null);
+    }
+  };
 
   // Reactive "Updated Ns ago" ticker
   useEffect(() => {
@@ -267,6 +335,9 @@ export function DashboardClient() {
               <span>Model</span>
               <span className="font-mono">{data?.llm_model || 'Not configured'}</span>
             </div>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-snug pt-1 border-t border-slate-100 dark:border-slate-800/60">
+              Demo data resets when the server restarts.
+            </p>
           </div>
         </div>
       </aside>
@@ -289,8 +360,6 @@ export function DashboardClient() {
           <Badge variant="sandbox" className="text-[10px] px-2 py-0.5 hidden sm:inline-flex">
             Sandbox
           </Badge>
-
-          
 
           <button
             type="button"
@@ -324,14 +393,55 @@ export function DashboardClient() {
                 <Badge variant="sandbox" className="hidden lg:inline-flex">
                   Sandbox demo, no real money
                 </Badge>
+                {(includeSample || data?.kpis?.includes_sample) && (
+                  <span
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-900 border border-purple-300 dark:bg-purple-950 dark:text-purple-200 dark:border-purple-800"
+                    aria-label="Includes sample data"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-purple-600" aria-hidden="true" />
+                    <span>Includes sample data</span>
+                  </span>
+                )}
               </div>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                Autonomous recovery agent telemetry and guardrail compliance
+                Autonomous recovery agent telemetry and guardrail compliance · <span className="text-xs">Demo data resets when the server restarts</span>
               </p>
             </div>
 
-            {/* Live Indicator, Poll Controls, Theme Toggle, Link */}
+            {/* Live Indicator, Data Mode Toggle, Poll Controls, Theme Toggle */}
             <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+              {/* Live vs Live + sample toggle */}
+              <div
+                role="group"
+                aria-label="Sample data filter"
+                className="inline-flex rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-gray-900 p-0.5 text-xs"
+              >
+                <button
+                  type="button"
+                  onClick={() => handleToggleSampleMode(false)}
+                  aria-pressed={!includeSample}
+                  className={`px-2.5 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                    !includeSample
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  Live
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleSampleMode(true)}
+                  aria-pressed={includeSample}
+                  className={`px-2.5 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                    includeSample
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  Live + sample
+                </button>
+              </div>
+
               {/* Live Status indicator */}
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white dark:bg-gray-900 border border-slate-200 dark:border-slate-800 text-xs">
                 {isStale ? (
@@ -386,12 +496,221 @@ export function DashboardClient() {
                   </svg>
                 )}
               </button>
-
-              {/* Link to Chat Demo */}
-              
             </div>
           </div>
 
+          {/* Separate Live vs Sample Breakdown Banner when sample mode is active */}
+          {(includeSample || data?.kpis?.includes_sample) && (
+            <div
+              role="status"
+              className="p-3 rounded-lg border border-purple-200 dark:border-purple-900/60 bg-purple-50/70 dark:bg-purple-950/30 text-purple-950 dark:text-purple-200 text-xs flex flex-wrap items-center justify-between gap-2"
+            >
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="font-bold">Sample Breakdown:</span>
+                <span>
+                  Live: <strong>{formatCents(data?.kpis?.live_recovered_cents ?? 0)}</strong> recovered / <strong>{formatCents(data?.kpis?.live_failed_cents ?? 0)}</strong> failed ({data?.kpis?.live_failed_events ?? 0} events)
+                </span>
+                <span className="text-purple-400">|</span>
+                <span>
+                  Sample (14d synthetic): <strong>{formatCents(data?.kpis?.sample_recovered_cents ?? 0)}</strong> recovered / <strong>{formatCents(data?.kpis?.sample_failed_cents ?? 0)}</strong> failed ({data?.kpis?.sample_failed_events ?? 0} events)
+                </span>
+              </div>
+              <span className="text-[11px] text-purple-700 dark:text-purple-300">
+                Sample rows never create PayPal orders or alter customer status.
+              </span>
+            </div>
+          )}
+
+          {/* Collapsible "Try it in 3 minutes" Guided Entry Panel */}
+          <Card className="p-4 border border-blue-200 dark:border-blue-900/60 bg-blue-50/40 dark:bg-blue-950/20">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <span className="px-2 py-0.5 rounded text-xs font-bold bg-blue-600 text-white">
+                  Judge Guide
+                </span>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Try it in 3 minutes
+                </h3>
+                <span className="text-xs text-slate-500 dark:text-slate-400 hidden sm:inline">
+                  Four deterministic recovery &amp; guardrail paths (isolated per customer)
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <Link
+                  href="/admin"
+                  className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  Open /admin Simulator &rarr;
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setShowGuide((v) => !v)}
+                  aria-expanded={showGuide}
+                  className="px-3 py-1 rounded-lg text-xs font-semibold bg-white dark:bg-gray-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  {showGuide ? 'Hide steps' : 'Show 4 guided paths'}
+                </button>
+              </div>
+            </div>
+
+            {showGuide && (
+              <div className="mt-4 pt-4 border-t border-blue-200/70 dark:border-blue-900/50 space-y-3 text-xs">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {/* Path 1: Credit Ladder */}
+                  <div className="p-3 rounded-lg bg-white dark:bg-gray-950 border border-slate-200 dark:border-slate-800 flex flex-col justify-between space-y-2">
+                    <div className="space-y-1">
+                      <div className="font-bold text-slate-900 dark:text-white">
+                        1. Credit Concession Ladder
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Customer: <strong>Alice Smith</strong> (Starter $25, 30% usage)
+                      </div>
+                      <ol className="list-decimal list-inside text-[11px] text-slate-600 dark:text-slate-300 space-y-0.5 pt-1">
+                        <li>Start chat &rarr; offered <strong>$20.00</strong> (20% off)</li>
+                        <li>Type <code>can you make it $10</code> &rarr; <strong>$16.25</strong> (35% off)</li>
+                        <li>Type <code>$10 i can afford</code> &rarr; <strong>$12.50</strong> floor + pause</li>
+                        <li>Type <code>yes</code> to open PayPal checkout</li>
+                      </ol>
+                    </div>
+                    <div className="flex items-center gap-1.5 pt-2">
+                      <button
+                        type="button"
+                        disabled={guideBusyId === 'c_1'}
+                        onClick={() => handleSimulateAndOpen('c_1')}
+                        className="flex-1 py-1.5 px-2 rounded bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                      >
+                        Try Alice
+                      </button>
+                      <button
+                        type="button"
+                        disabled={guideBusyId === 'c_1'}
+                        onClick={() => handleResetCustomer('c_1')}
+                        className="py-1.5 px-2 rounded border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Path 2: High-Usage Retry */}
+                  <div className="p-3 rounded-lg bg-white dark:bg-gray-950 border border-slate-200 dark:border-slate-800 flex flex-col justify-between space-y-2">
+                    <div className="space-y-1">
+                      <div className="font-bold text-slate-900 dark:text-white">
+                        2. High-Usage Retry Guardrail
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Customer: <strong>Bob Jones</strong> (Pro $50, 95% usage)
+                      </div>
+                      <ol className="list-decimal list-inside text-[11px] text-slate-600 dark:text-slate-300 space-y-0.5 pt-1">
+                        <li>Start chat &rarr; full-price retry at <strong>$50.00</strong></li>
+                        <li>Type <code>can I get a discount</code> &rarr; refused (stays $50.00)</li>
+                        <li>Push back again &rarr; escalates to human queue</li>
+                      </ol>
+                    </div>
+                    <div className="flex items-center gap-1.5 pt-2">
+                      <button
+                        type="button"
+                        disabled={guideBusyId === 'c_2'}
+                        onClick={() => handleSimulateAndOpen('c_2')}
+                        className="flex-1 py-1.5 px-2 rounded bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                      >
+                        Try Bob
+                      </button>
+                      <button
+                        type="button"
+                        disabled={guideBusyId === 'c_2'}
+                        onClick={() => handleResetCustomer('c_2')}
+                        className="py-1.5 px-2 rounded border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Path 3: Pause with no payment */}
+                  <div className="p-3 rounded-lg bg-white dark:bg-gray-950 border border-slate-200 dark:border-slate-800 flex flex-col justify-between space-y-2">
+                    <div className="space-y-1">
+                      <div className="font-bold text-slate-900 dark:text-white">
+                        3. Pause (No Payment Needed)
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Customer: <strong>George Costanza</strong> (Starter $25, 5% usage)
+                      </div>
+                      <ol className="list-decimal list-inside text-[11px] text-slate-600 dark:text-slate-300 space-y-0.5 pt-1">
+                        <li>Start chat &rarr; offered $20.00</li>
+                        <li>Type <code>can I pause my account instead</code></li>
+                        <li>Click <strong>Confirm Pause</strong> &rarr; status becomes Paused ($0)</li>
+                      </ol>
+                    </div>
+                    <div className="flex items-center gap-1.5 pt-2">
+                      <button
+                        type="button"
+                        disabled={guideBusyId === 'c_7'}
+                        onClick={() => handleSimulateAndOpen('c_7')}
+                        className="flex-1 py-1.5 px-2 rounded bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                      >
+                        Try George
+                      </button>
+                      <button
+                        type="button"
+                        disabled={guideBusyId === 'c_7'}
+                        onClick={() => handleResetCustomer('c_7')}
+                        className="py-1.5 px-2 rounded border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Path 4: Escalation with no payment */}
+                  <div className="p-3 rounded-lg bg-white dark:bg-gray-950 border border-slate-200 dark:border-slate-800 flex flex-col justify-between space-y-2">
+                    <div className="space-y-1">
+                      <div className="font-bold text-slate-900 dark:text-white">
+                        4. Escalation (No Payment Needed)
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Customer: <strong>Diana Prince</strong> (Pro $50, 45% usage)
+                      </div>
+                      <ol className="list-decimal list-inside text-[11px] text-slate-600 dark:text-slate-300 space-y-0.5 pt-1">
+                        <li>Start chat &rarr; offered $40.00</li>
+                        <li>Type <code>this is a chargeback</code></li>
+                        <li>Open offers superseded; flagged <strong>Chargeback / High</strong></li>
+                      </ol>
+                    </div>
+                    <div className="flex items-center gap-1.5 pt-2">
+                      <button
+                        type="button"
+                        disabled={guideBusyId === 'c_4'}
+                        onClick={() => handleSimulateAndOpen('c_4')}
+                        className="flex-1 py-1.5 px-2 rounded bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                      >
+                        Try Diana
+                      </button>
+                      <button
+                        type="button"
+                        disabled={guideBusyId === 'c_4'}
+                        onClick={() => handleResetCustomer('c_4')}
+                        className="py-1.5 px-2 rounded border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-400 pt-1">
+                  <span>
+                    <strong>Note on sandbox payments:</strong> Completing PayPal checkout (Path 1) requires the disposable sandbox buyer account provided in the submission testing notes. Paths 2, 3, and 4 finish without any payment.
+                  </span>
+                  {guideStatusMsg && (
+                    <span className="font-semibold text-blue-700 dark:text-blue-300">
+                      {guideStatusMsg}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </Card>
 
           {/* Stale Connection Warning Banner */}
           {isStale && !error && (
@@ -496,6 +815,7 @@ export function DashboardClient() {
             decisions={data?.decisions}
             offers={data?.offers}
             onClose={handleCloseDrawer}
+            onResetCustomer={handleResetCustomer}
             triggerRef={triggerRef}
           />
         </div>

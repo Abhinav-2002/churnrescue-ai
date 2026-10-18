@@ -48,7 +48,16 @@ const responseSchema = z.object({
     paused: z.number(),
     escalated: z.number(),
     average_discount: z.number(),
-    median_hours_to_recovery: z.number()
+    median_hours_to_recovery: z.number(),
+    includes_sample: z.boolean().optional(),
+    live_failed_events: z.number().optional(),
+    sample_failed_events: z.number().optional(),
+    live_failed_cents: z.number().optional(),
+    sample_failed_cents: z.number().optional(),
+    live_recovered_cents: z.number().optional(),
+    sample_recovered_cents: z.number().optional(),
+    live_recoveries_count: z.number().optional(),
+    sample_recoveries_count: z.number().optional()
   }),
   daily_series: z.array(z.object({
     date: z.string(),
@@ -147,15 +156,19 @@ function getGuardrailCategory(details: any): string | null {
   const c = details?.clamps || [];
   const s = Array.isArray(c) ? c.join(' ') : (c || '');
   if (s.includes('forced escalate by keyword rule')) return 'escalated_by_keyword';
-  if (s.includes('cancel intent >= 60 usage twice') || s.includes('ladder exhausted')) return 'retry_forced';
-  if (s.includes('intent') || s.includes('invalid') || s.includes('not allowed')) return 'retry_forced';
-  
+
   if (details.proposed_discount_percent != null && details.approved_discount_percent != null) {
     if (details.proposed_discount_percent > details.approved_discount_percent) {
       return 'ladder_limited';
     }
   }
-  
+  if (details.approved_discount_percent != null && details.approved_discount_percent > 0 && s.includes('partial_credit')) {
+    return 'ladder_limited';
+  }
+
+  if (s.includes('cancel intent >= 60 usage twice') || s.includes('ladder exhausted') || s.includes('high usage second pushback')) return 'retry_forced';
+  if (s.includes('-> retry') || s.includes('invalid') || s.includes('not allowed')) return 'retry_forced';
+
   if (details.template_used) return 'template_used';
   return null;
 }
@@ -239,6 +252,14 @@ export async function GET(req: Request) {
       days = parseInt(daysParam, 10);
     }
 
+    const includeSampleParam = url.searchParams.get('include_sample');
+    if (includeSampleParam !== null && includeSampleParam !== '0' && includeSampleParam !== '1') {
+      return NextResponse.json({ error: 'invalid_query' }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
+    }
+    const includeSample = includeSampleParam === '1';
+    const sampleWhere = includeSample ? '1=1' : 'is_sample = 0';
+    const sampleAliasWhere = (alias: string) => (includeSample ? '1=1' : `${alias}.is_sample = 0`);
+
     const db = getDb();
 
     // Timestamp windows for current and previous equal-length periods
@@ -248,15 +269,21 @@ export async function GET(req: Request) {
     const currStartIso = new Date(currStartMs).toISOString();
     const prevStartIso = new Date(prevStartMs).toISOString();
 
+    // Separate live vs sample counts across the database
+    const liveFailedRow = db.prepare(`SELECT COUNT(*) as c, COALESCE(SUM(amount_cents), 0) as sum_cents FROM billing_events WHERE status IN ('failed', 'recovered', 'paused') AND is_sample = 0`).get() as { c: number; sum_cents: number };
+    const sampleFailedRow = db.prepare(`SELECT COUNT(*) as c, COALESCE(SUM(amount_cents), 0) as sum_cents FROM billing_events WHERE status IN ('failed', 'recovered', 'paused') AND is_sample = 1`).get() as { c: number; sum_cents: number };
+    const liveRecRow = db.prepare(`SELECT COUNT(*) as c, COALESCE(SUM(recovered_amount_cents), 0) as sum_cents FROM recoveries WHERE is_sample = 0`).get() as { c: number; sum_cents: number };
+    const sampleRecRow = db.prepare(`SELECT COUNT(*) as c, COALESCE(SUM(recovered_amount_cents), 0) as sum_cents FROM recoveries WHERE is_sample = 1`).get() as { c: number; sum_cents: number };
+
     // 1. Customers (Capped at 200)
     const customersRaw = db.prepare(`
       SELECT 
         c.id, c.name, c.plan_name as plan, c.plan_price_cents as price_cents, 
         c.usage_percent, c.status, c.created_at,
-        (SELECT action FROM agent_actions WHERE customer_id = c.id ORDER BY created_at DESC LIMIT 1) as last_action,
-        (SELECT created_at FROM agent_actions WHERE customer_id = c.id ORDER BY created_at DESC LIMIT 1) as last_action_at,
-        COALESCE((SELECT SUM(amount_cents) FROM billing_events WHERE customer_id = c.id AND status IN ('failed', 'recovered', 'paused')), 0) as failed_amount_cents,
-        COALESCE((SELECT SUM(recovered_amount_cents) FROM recoveries WHERE customer_id = c.id), 0) as recovered_amount_cents
+        (SELECT action FROM agent_actions WHERE customer_id = c.id AND ${sampleWhere} ORDER BY created_at DESC, rowid DESC LIMIT 1) as last_action,
+        (SELECT created_at FROM agent_actions WHERE customer_id = c.id AND ${sampleWhere} ORDER BY created_at DESC, rowid DESC LIMIT 1) as last_action_at,
+        COALESCE((SELECT SUM(amount_cents) FROM billing_events WHERE customer_id = c.id AND status IN ('failed', 'recovered', 'paused') AND ${sampleWhere}), 0) as failed_amount_cents,
+        COALESCE((SELECT SUM(recovered_amount_cents) FROM recoveries WHERE customer_id = c.id AND ${sampleWhere}), 0) as recovered_amount_cents
       FROM customers c
       LIMIT 200
     `).all() as any[];
@@ -290,6 +317,7 @@ export async function GET(req: Request) {
     const offers = db.prepare(`
       SELECT id, customer_id, kind, discount_percent, ladder_step, amount_cents, status, created_at, target_plan
       FROM offers
+      WHERE ${sampleWhere}
       ORDER BY created_at DESC
       LIMIT 200
     `).all() as any[];
@@ -298,6 +326,7 @@ export async function GET(req: Request) {
     const recoveries = db.prepare(`
       SELECT customer_id, original_amount_cents, recovered_amount_cents, created_at
       FROM recoveries
+      WHERE ${sampleWhere}
       ORDER BY created_at DESC
       LIMIT 200
     `).all() as any[];
@@ -306,6 +335,7 @@ export async function GET(req: Request) {
     const agentActions = db.prepare(`
       SELECT created_at, customer_id, action, details_json
       FROM agent_actions
+      WHERE ${sampleWhere}
       ORDER BY created_at DESC
       LIMIT 100
     `).all() as any[];
@@ -316,8 +346,8 @@ export async function GET(req: Request) {
       try { details = JSON.parse(a.details_json); } catch(e) {}
 
       if (!latestClampedExample) {
-        if (details.proposed_discount_percent != null && details.approved_discount_percent != null && details.proposed_discount_percent > details.approved_discount_percent) {
-          latestClampedExample = `Model proposed ${details.proposed_discount_percent}%, code allowed ${details.approved_discount_percent}%`;
+        if (details.approved_discount_percent != null && details.approved_discount_percent > 0) {
+          latestClampedExample = `Code ladder assigned ${details.approved_discount_percent}% discount (step ${details.ladder_step ?? 0})`;
         } else if (details.clamps && details.clamps.length > 0) {
           latestClampedExample = details.clamps[0];
         }
@@ -338,13 +368,14 @@ export async function GET(req: Request) {
     const seriesFailed = db.prepare(`
       SELECT DATE(created_at) as date, SUM(amount_cents) as total
       FROM billing_events
-      WHERE status IN ('failed', 'recovered', 'paused')
+      WHERE status IN ('failed', 'recovered', 'paused') AND ${sampleWhere}
       GROUP BY DATE(created_at)
     `).all() as any[];
 
     const seriesRecovered = db.prepare(`
       SELECT DATE(created_at) as date, SUM(recovered_amount_cents) as total
       FROM recoveries
+      WHERE ${sampleWhere}
       GROUP BY DATE(created_at)
     `).all() as any[];
 
@@ -381,11 +412,11 @@ export async function GET(req: Request) {
         return found ? found.total : 0;
       }),
       customers_recovered: sparklineDates.map(d => {
-        const row = db.prepare(`SELECT COUNT(DISTINCT customer_id) as c FROM recoveries WHERE DATE(created_at) = ?`).get(d) as any;
+        const row = db.prepare(`SELECT COUNT(DISTINCT customer_id) as c FROM recoveries WHERE DATE(created_at) = ? AND ${sampleWhere}`).get(d) as any;
         return row ? row.c : 0;
       }),
       needs_human: sparklineDates.map(d => {
-        const row = db.prepare(`SELECT COUNT(*) as c FROM agent_actions WHERE action = 'escalate' AND DATE(created_at) = ?`).get(d) as any;
+        const row = db.prepare(`SELECT COUNT(*) as c FROM agent_actions WHERE action = 'escalate' AND DATE(created_at) = ? AND ${sampleWhere}`).get(d) as any;
         return row ? row.c : 0;
       })
     };
@@ -393,19 +424,20 @@ export async function GET(req: Request) {
     // 7. Funnel: Nested sets of unique customers (failed -> offered within failed -> accepted within offered -> recovered within accepted)
     const failedCustomerRows = db.prepare(`
       SELECT DISTINCT customer_id FROM billing_events
-      WHERE status IN ('failed', 'recovered', 'paused')
+      WHERE status IN ('failed', 'recovered', 'paused') AND ${sampleWhere}
     `).all() as { customer_id: string }[];
     const failedCustomerIds = new Set(failedCustomerRows.map(r => r.customer_id));
 
     const offeredCustomerRows = db.prepare(`
       SELECT DISTINCT customer_id FROM offers
+      WHERE ${sampleWhere}
     `).all() as { customer_id: string }[];
     const allOfferedCustomerIds = new Set(offeredCustomerRows.map(r => r.customer_id));
     const offeredCustomerIds = new Set([...allOfferedCustomerIds].filter(id => failedCustomerIds.has(id)));
 
     const acceptedOfferRows = db.prepare(`
       SELECT DISTINCT customer_id FROM offers
-      WHERE status IN ('accepted', 'captured')
+      WHERE status IN ('accepted', 'captured') AND ${sampleWhere}
     `).all() as { customer_id: string }[];
     const pausedCustomerRows = db.prepare(`
       SELECT DISTINCT id as customer_id FROM customers
@@ -419,6 +451,7 @@ export async function GET(req: Request) {
 
     const recoveredCustomerRows = db.prepare(`
       SELECT DISTINCT customer_id FROM recoveries
+      WHERE ${sampleWhere}
     `).all() as { customer_id: string }[];
     const allRecoveredCustomerIds = new Set(recoveredCustomerRows.map(r => r.customer_id));
     const recoveredCustomerIds = new Set([...allRecoveredCustomerIds].filter(id => acceptedCustomerIds.has(id)));
@@ -429,8 +462,8 @@ export async function GET(req: Request) {
     const funnelPaid = recoveredCustomerIds.size;
 
     const totalFailedRaw = (db.prepare(`SELECT COUNT(*) as c FROM billing_events
-      WHERE status IN ('failed', 'recovered', 'paused')`).get() as any).c;
-    const totalPaidRaw = (db.prepare(`SELECT COUNT(*) as c FROM recoveries`).get() as any).c;
+      WHERE status IN ('failed', 'recovered', 'paused') AND ${sampleWhere}`).get() as any).c;
+    const totalPaidRaw = (db.prepare(`SELECT COUNT(*) as c FROM recoveries WHERE ${sampleWhere}`).get() as any).c;
 
     // Detect data inconsistencies: any offer, accepted offer, or recovery for a customer missing from an earlier stage
     let dataInconsistencies = 0;
@@ -448,33 +481,33 @@ export async function GET(req: Request) {
     const currFailedRow = db.prepare(`
       SELECT COALESCE(SUM(amount_cents), 0) as total, COUNT(*) as count
       FROM billing_events
-      WHERE status IN ('failed', 'recovered', 'paused') AND created_at >= ?
+      WHERE status IN ('failed', 'recovered', 'paused') AND created_at >= ? AND ${sampleWhere}
     `).get(currStartIso) as any;
     
     const currRecoveredRow = db.prepare(`
       SELECT COALESCE(SUM(recovered_amount_cents), 0) as total, COUNT(DISTINCT customer_id) as customers_count
       FROM recoveries
-      WHERE created_at >= ?
+      WHERE created_at >= ? AND ${sampleWhere}
     `).get(currStartIso) as any;
 
     const prevFailedRow = db.prepare(`
       SELECT COALESCE(SUM(amount_cents), 0) as total, COUNT(*) as count
       FROM billing_events
-      WHERE status IN ('failed', 'recovered', 'paused') AND created_at >= ? AND created_at < ?
+      WHERE status IN ('failed', 'recovered', 'paused') AND created_at >= ? AND created_at < ? AND ${sampleWhere}
     `).get(prevStartIso, currStartIso) as any;
 
     const prevRecoveredRow = db.prepare(`
       SELECT COALESCE(SUM(recovered_amount_cents), 0) as total, COUNT(DISTINCT customer_id) as customers_count
       FROM recoveries
-      WHERE created_at >= ? AND created_at < ?
+      WHERE created_at >= ? AND created_at < ? AND ${sampleWhere}
     `).get(prevStartIso, currStartIso) as any;
 
     const currNeedsHuman = (db.prepare(`
-      SELECT COUNT(DISTINCT customer_id) as c FROM agent_actions WHERE action = 'escalate' AND created_at >= ?
+      SELECT COUNT(DISTINCT customer_id) as c FROM agent_actions WHERE action = 'escalate' AND created_at >= ? AND ${sampleWhere}
     `).get(currStartIso) as any).c;
 
     const prevNeedsHuman = (db.prepare(`
-      SELECT COUNT(DISTINCT customer_id) as c FROM agent_actions WHERE action = 'escalate' AND created_at >= ? AND created_at < ?
+      SELECT COUNT(DISTINCT customer_id) as c FROM agent_actions WHERE action = 'escalate' AND created_at >= ? AND created_at < ? AND ${sampleWhere}
     `).get(prevStartIso, currStartIso) as any).c;
 
     const currRecoveredRevenue = currRecoveredRow.total;
@@ -515,8 +548,10 @@ export async function GET(req: Request) {
       INNER JOIN (
         SELECT customer_id, MAX(created_at) as max_created
         FROM agent_actions
+        WHERE ${sampleWhere}
         GROUP BY customer_id
       ) latest ON a.customer_id = latest.customer_id AND a.created_at = latest.max_created
+      WHERE ${sampleAliasWhere('a')}
     `).all() as { customer_id: string; action: string }[];
 
     let retryCount = 0;
@@ -548,7 +583,7 @@ export async function GET(req: Request) {
       if (cat === 'ladder_limited') pricingAdjustments++;
       else if (cat === 'retry_forced') blockedSuggestions++;
       else if (cat === 'escalated_by_keyword') escalatedByKeyword++;
-      else if (cat === 'template_used') templateEnforced++;
+      if (cat === 'template_used' || details.template_used) templateEnforced++;
     }
 
     // 11. Policy Audit (Re-evaluates every stored non-superseded offer)
@@ -557,7 +592,7 @@ export async function GET(req: Request) {
              c.plan_price_cents, c.usage_percent
       FROM offers o
       JOIN customers c ON o.customer_id = c.id
-      WHERE o.status != 'superseded'
+      WHERE o.status != 'superseded' AND ${sampleAliasWhere('o')}
     `).all() as any[];
 
     const violatingOfferIds: string[] = [];
@@ -577,7 +612,7 @@ export async function GET(req: Request) {
       FROM customers c
       JOIN agent_actions a ON a.customer_id = c.id
       LEFT JOIN billing_events b ON a.billing_event_id = b.id
-      WHERE a.action = 'escalate'
+      WHERE a.action = 'escalate' AND ${sampleAliasWhere('a')}
       ORDER BY a.created_at DESC
       LIMIT 100
     `).all() as any[];
@@ -622,7 +657,7 @@ export async function GET(req: Request) {
       })
       .slice(0, 50);
 
-    // 13. KPIs (retained for backward compatibility)
+    // 13. KPIs (retained for backward compatibility + live/sample breakdown)
     const atRisk = customersRaw.filter(c => c.status === 'at_risk').length;
     const paused = customersRaw.filter(c => c.status === 'paused').length;
     const escalated = customersRaw.filter(c => c.last_action === 'escalate').length;
@@ -636,6 +671,7 @@ export async function GET(req: Request) {
       SELECT (julianday(r.created_at) - julianday(b.created_at)) * 24 as hours
       FROM recoveries r
       JOIN billing_events b ON r.billing_event_id = b.id
+      WHERE ${sampleAliasWhere('r')}
     `).all() as { hours: number }[];
     
     let medianHours = 0;
@@ -677,7 +713,16 @@ export async function GET(req: Request) {
         paused: paused,
         escalated: escalated,
         average_discount: averageDiscount,
-        median_hours_to_recovery: medianHours
+        median_hours_to_recovery: medianHours,
+        includes_sample: includeSample,
+        live_failed_events: liveFailedRow.c,
+        sample_failed_events: sampleFailedRow.c,
+        live_failed_cents: liveFailedRow.sum_cents,
+        sample_failed_cents: sampleFailedRow.sum_cents,
+        live_recovered_cents: liveRecRow.sum_cents,
+        sample_recovered_cents: sampleRecRow.sum_cents,
+        live_recoveries_count: liveRecRow.c,
+        sample_recoveries_count: sampleRecRow.c
       },
       daily_series,
       sparklines,

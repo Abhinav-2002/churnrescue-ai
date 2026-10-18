@@ -24,7 +24,28 @@ export default function AdminClientPage({ customers, events }: { customers: any[
         setErrorMsg(`Error: ${data.error} (Status: ${data.status}, Issue: ${data.issue})`);
       } else {
         // Open the chat right away with fresh state
-        openChatForCustomer(customerId);
+      openChatForCustomer(customerId);
+      }
+      router.refresh();
+    } catch (e: any) {
+      setErrorMsg(e.message);
+    } finally {
+      setLoadingId(null);
+    }
+  };
+
+  const handleResetCustomer = async (customerId: string) => {
+    setLoadingId(`reset_${customerId}`);
+    setErrorMsg(null);
+    try {
+      const res = await fetch('/api/demo/reset-customer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customerId })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErrorMsg(`Error resetting customer: ${data.error || res.statusText}`);
       }
       router.refresh();
     } catch (e: any) {
@@ -37,12 +58,25 @@ export default function AdminClientPage({ customers, events }: { customers: any[
   return (
     <main className="p-8 max-w-4xl mx-auto font-sans">
       <div className="flex justify-between items-center mb-8">
-        <h1 className="text-2xl font-bold">Admin Dashboard</h1>
+        <div>
+          <h1 className="text-2xl font-bold">Admin Dashboard</h1>
+          <p className="text-xs text-gray-500 mt-1">Demo data resets when the server restarts. Use Reset Customer on any row to reset a single customer without affecting others.</p>
+        </div>
         <div className="space-x-4">
           <a href="/dashboard" className="text-blue-600 hover:underline">View Analytics Dashboard &rarr;</a>
           <button 
             onClick={async () => {
-              await fetch('/api/reset', { method: 'POST' });
+              setErrorMsg(null);
+              const res = await fetch('/api/reset', { method: 'POST' });
+              if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                if (data.error === 'hosted_reset_disabled') {
+                  setErrorMsg('Global reset is disabled in hosted demo mode. Use the per-customer Reset button on a row instead.');
+                } else {
+                  setErrorMsg(`Reset error: ${data.error || res.statusText}`);
+                }
+                return;
+              }
               router.refresh();
             }}
             className="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100"
@@ -98,6 +132,14 @@ export default function AdminClientPage({ customers, events }: { customers: any[
                       className="border border-gray-300 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-50"
                     >
                       Open Widget
+                    </button>
+                    <button
+                      onClick={() => handleResetCustomer(c.id)}
+                      disabled={loadingId === `reset_${c.id}`}
+                      data-testid={`admin-reset-${c.id}`}
+                      className="border border-amber-300 text-amber-800 bg-amber-50 px-3 py-1 rounded text-sm hover:bg-amber-100 disabled:opacity-50"
+                    >
+                      {loadingId === `reset_${c.id}` ? 'Resetting...' : 'Reset Customer'}
                     </button>
                   </td>
                 </tr>

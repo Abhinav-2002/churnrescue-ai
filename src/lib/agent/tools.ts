@@ -24,6 +24,7 @@ export const create_recovery_order = tool(
     
     const offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(offerId) as any;
     if (!offer) return JSON.stringify({ error: 'Offer not found' });
+    if (offer.is_sample === 1) return JSON.stringify({ error: 'Sample offer cannot create PayPal order' });
     if (offer.customer_id !== customerId) return JSON.stringify({ error: 'Unauthorized offer access' });
     if (offer.status !== 'accepted') return JSON.stringify({ error: 'Offer is not accepted' });
     
@@ -82,6 +83,7 @@ export async function createOrderInternal(offerId: string) {
   const db = getDb();
   let offer = db.prepare('SELECT * FROM offers WHERE id = ?').get(offerId) as any;
   if (!offer) return;
+  if (offer.is_sample === 1) return null;
   if (offer.status !== 'accepted') return;
   if (offer.paypal_order_id && offer.paypal_order_status !== 'declined') return offer.paypal_order_id;
   
