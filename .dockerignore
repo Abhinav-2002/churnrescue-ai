@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+.github
+.env
+.env.*
+!.env.example
+data.db
+data.db-shm
+data.db-wal
+*.log
+coverage
+.vercel
+.vscode
