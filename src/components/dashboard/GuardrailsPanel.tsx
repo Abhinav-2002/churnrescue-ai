@@ -105,7 +105,7 @@ export function GuardrailsPanel({
               {summary?.pricing_adjustments ?? 0}
             </div>
             <div className="text-[11px] text-slate-700 dark:text-slate-300 mt-1 font-semibold">
-              Discount Capped
+              Concession Ladder
             </div>
           </div>
           <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 leading-tight">

@@ -14,7 +14,7 @@ Unlike unconstrained chatbots that can hallucinate prices or grant unauthorized 
 - **[Claims & Evidence Matrix (`docs/CLAIMS.md`)](docs/CLAIMS.md)** — Every architectural, guardrail, and payment claim mapped to exact `file:line`, test file, and verification command.
 - **[System Architecture (`docs/ARCHITECTURE.md`)](docs/ARCHITECTURE.md)** — Mermaid diagrams for the 4-node LangGraph pipeline, PayPal v6 checkout flow, and Dashboard v2.
 - **[Financial, Policy & Privacy Invariants (`docs/INVARIANTS.md`)](docs/INVARIANTS.md)** — Formal specification of money, ladder, usage, and zero-PII invariants.
-- **[Testing & Mutation Proofs (`docs/TESTING.md`)](docs/TESTING.md)** — Unit/integration suite (`265` tests across `35` files), `D4`/`D5`/`D7` mutation proofs, real-model evaluation, and smoke tests.
+- **[Testing & Mutation Proofs (`docs/TESTING.md`)](docs/TESTING.md)** — Unit/integration suite (`266` tests across `35` files), `D4`/`D5`/`D7` mutation proofs, real-model evaluation, and smoke tests.
 - **[Manual Verification Matrix (`docs/MANUAL_TEST_PLAN.md`)](docs/MANUAL_TEST_PLAN.md)** — Full 26-row manual test matrix (`M1`–`M26`) and live real-model edge cases (`E1`–`E5`).
 - **[PayPal v6 Integration Review (`docs/PAYPAL_REVIEW.md`)](docs/PAYPAL_REVIEW.md)** — Atomic order claiming, `PayPal-Request-Id` idempotency, pre-capture amount verification, and `INSTRUMENT_DECLINED` recovery.
 - **[Cloud Run Deployment Guide (`docs/DEPLOY_CLOUD_RUN.md`)](docs/DEPLOY_CLOUD_RUN.md)** & **[Operations Runbook (`docs/RUNBOOK.md`)](docs/RUNBOOK.md)**.
@@ -68,7 +68,7 @@ Unlike unconstrained chatbots that can hallucinate prices or grant unauthorized 
    - Open [http://localhost:3000/admin](http://localhost:3000/admin) for the **Admin & Chat Simulation View**.
 4. **Run verification gates:**
    ```bash
-   # TypeScript typecheck + ESLint + Vitest unit/integration suite (35 files, 265 tests)
+   # TypeScript typecheck + ESLint + Vitest unit/integration suite (35 files, 266 tests)
    npm run check
 
    # Production standalone build
