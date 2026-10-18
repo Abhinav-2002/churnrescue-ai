@@ -272,4 +272,26 @@ describe('Stage R1 (r1-judge): Reset Isolation, Sample History, Migration, and C
     expect(c1After.status).toBe('healthy');
     expect(c2Actions.action).toBe('escalate');
   });
+
+  it('6. Deterministic Concession Ladder metric: counts code-assigned ladder discounts without requiring model proposed_discount_percent', async () => {
+    const db = getDb();
+    db.prepare("UPDATE customers SET status = 'at_risk' WHERE id = 'c_1'").run();
+    db.prepare("INSERT INTO billing_events (id, customer_id, type, amount_cents, status, paypal_order_id) VALUES ('be_c1_ladder', 'c_1', 'renewal', 2500, 'failed', 'ord_c1_ladder')").run();
+
+    const startRes = await startPOST(
+      new Request('http://localhost:3000/api/agent/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customerId: 'c_1' })
+      })
+    );
+    expect(startRes.status).toBe(200);
+
+    const metricsRes = await metricsGET(new Request('http://localhost:3000/api/dashboard/metrics?days=14'));
+    expect(metricsRes.status).toBe(200);
+    const metricsJson = await metricsRes.json();
+
+    expect(metricsJson.guardrail_summary.pricing_adjustments).toBe(1);
+    expect(metricsJson.guardrail_summary.latest_clamp_summary).toBe('Code ladder assigned 20% discount (step 0)');
+  });
 });

@@ -386,7 +386,7 @@ describe('Checkpoint D — Dashboard Panels Component Tests', () => {
 
       render(<GuardrailsPanel summary={mockSummary} audit={mockAudit} />);
       expect(screen.getByText('15 audited, 0 outside policy')).toBeTruthy();
-      expect(screen.getByText('Discount Capped')).toBeTruthy();
+      expect(screen.getByText('Concession Ladder')).toBeTruthy();
       expect(screen.getByText('Forced Retry')).toBeTruthy();
       expect(screen.getByText('Keyword Escalation')).toBeTruthy();
       expect(screen.getByText('Template Used')).toBeTruthy();

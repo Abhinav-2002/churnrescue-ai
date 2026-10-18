@@ -459,7 +459,7 @@ describe('Fix Pack Tests: Dashboard Truthfulness', () => {
     };
     render(<GuardrailsPanel summary={summary} audit={{ total_audited: 5, outside_policy_count: 0, violating_offer_ids: [] }} />);
 
-    expect(screen.getByText('Discount Capped')).toBeTruthy();
+    expect(screen.getByText('Concession Ladder')).toBeTruthy();
     expect(screen.getByText('Forced Retry')).toBeTruthy();
     expect(screen.getByText('Keyword Escalation')).toBeTruthy();
     expect(screen.getByText('Template Used')).toBeTruthy();

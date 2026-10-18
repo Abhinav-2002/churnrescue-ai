@@ -1,6 +1,6 @@
 # ChurnRescue AI — Testing, Mutation Proofs & Evaluation Guide (`docs/TESTING.md`)
 
-ChurnRescue AI includes **265 automated tests across 35 test suites**, mutation proofs for critical concurrency and state-machine defects (`D4`, `D5`, `D7`), a live Vertex AI evaluation harness (`scripts/eval-real.ts`), and a 7-gate post-deploy HTTP smoke suite (`scripts/smoke.ts`).
+ChurnRescue AI includes **266 automated tests across 35 test suites**, mutation proofs for critical concurrency and state-machine defects (`D4`, `D5`, `D7`), a live Vertex AI evaluation harness (`scripts/eval-real.ts`), and a 7-gate post-deploy HTTP smoke suite (`scripts/smoke.ts`).
 
 ---
 
