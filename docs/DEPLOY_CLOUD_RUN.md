@@ -33,18 +33,23 @@ gcloud services enable `
 
 ## 3. Configure Least-Privilege Service Account & IAM
 
-Verify or grant the runtime service account (`rolefitai@project-03a4bace-4744-4fab-bc9.iam.gserviceaccount.com`) access to Vertex AI (`roles/aiplatform.user`) and Secret Manager (`roles/secretmanager.secretAccessor`):
+Verify or grant the dedicated runtime service account (`churnrescue-ai@project-03a4bace-4744-4fab-bc9.iam.gserviceaccount.com`) access to Vertex AI (`roles/aiplatform.user`) and secret-scoped Secret Manager access (`roles/secretmanager.secretAccessor` on `PAYPAL_CLIENT_SECRET`):
 
 ```powershell
-$SA_EMAIL = "rolefitai@$PROJECT_ID.iam.gserviceaccount.com"
+$SA_EMAIL = "churnrescue-ai@$PROJECT_ID.iam.gserviceaccount.com"
+
+gcloud iam service-accounts create churnrescue-ai `
+  --display-name="ChurnRescue AI Runtime SA" `
+  --project=$PROJECT_ID 2>$null
 
 gcloud projects add-iam-policy-binding $PROJECT_ID `
   --member="serviceAccount:$SA_EMAIL" `
   --role="roles/aiplatform.user"
 
-gcloud projects add-iam-policy-binding $PROJECT_ID `
+gcloud secrets add-iam-policy-binding PAYPAL_CLIENT_SECRET `
   --member="serviceAccount:$SA_EMAIL" `
-  --role="roles/secretmanager.secretAccessor"
+  --role="roles/secretmanager.secretAccessor" `
+  --project=$PROJECT_ID
 ```
 
 ---

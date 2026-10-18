@@ -49,10 +49,11 @@ SaaS companies lose up to 9% of recurring revenue to involuntary churn and faile
 
 ## 5. Verification Evidence Summary
 
+- **Live Deployed Cloud Run URL:** `https://churnrescue-ai-550444407405.us-central1.run.app` (Service `churnrescue-ai`, Region `us-central1`, Revision `churnrescue-ai-00002-645`).
 - **Automated Test Suite:** `35` test files, `266` passing tests (`npm run check`).
-- **Live PayPal Sandbox Capture Proof:** Order `3LG77311TG3677635`, Capture `81485234NB008850W` (`COMPLETED`, `150.00 USD`) for Hannah Abbott (`c_8`), reconciled 1-to-1 with SQLite `recoveries` (`15000` cents) and `/dashboard` (`$150.00` Recovered Revenue).
+- **Live PayPal Sandbox Capture Proof:** Order `3LG77311TG3677635`, Capture `81485234NB008850W` (`COMPLETED`, `150.00 USD`) for Hannah Abbott (`c_8`), reconciled 1-to-1 with SQLite `recoveries` (`15000` cents) and `/dashboard` (`$150.00` Recovered Revenue); Cloud Run live PayPal Sandbox order `86118971MG8639138` verified for idempotency and pre-capture status enforcement.
 - **Live Vertex AI Ladder & Escalation Proof:** Alice (`c_1`) verified across `2000` $\to$ `1625` $\to$ `1250` cents (`ladder_step` `0` $\to$ `1` $\to$ `2`) and Turn-4 `repeat_pushback` escalation; Diana (`c_4`) verified in `human_queue` (`chargeback`, `High`, `$50.00`).
-- **Automated Smoke Suite (`scripts/smoke.ts`):** All 7 post-deploy HTTP gates passing (`200` on `/api/health`, `/api/ready`, `/api/config`, `/api/dashboard/metrics`, `404` on `/api/debug`, and isolated E2E flow on `c_5`).
+- **Automated Smoke Suite (`scripts/smoke.ts`):** All 7 post-deploy HTTP gates passing against `https://churnrescue-ai-550444407405.us-central1.run.app` (`200` on `/api/health`, `/api/ready`, `/api/config`, `/api/dashboard/metrics`, `404` on `/api/debug`, and isolated E2E flow on `c_5`).
 
 ---
 
@@ -60,9 +61,10 @@ SaaS companies lose up to 9% of recurring revenue to involuntary churn and faile
 
 - [x] `npm run check` passes (`0` TypeScript errors, `0` ESLint errors, `35/35` test files, `266/266` tests).
 - [x] `npm run build` succeeds with `output: "standalone"`.
-- [x] `npx tsx scripts/smoke.ts` passes all 7 gates against the live server.
+- [x] Deployed to Google Cloud Run (`https://churnrescue-ai-550444407405.us-central1.run.app`) with dedicated least-privilege runtime service account (`churnrescue-ai@project-03a4bace-4744-4fab-bc9.iam.gserviceaccount.com`) and Secret Manager (`PAYPAL_CLIENT_SECRET`).
+- [x] `npx tsx scripts/smoke.ts` passes all 7 gates against `https://churnrescue-ai-550444407405.us-central1.run.app`.
 - [x] Zero secrets, `.env` files, or PayPal credentials committed in Git history (`git log -S` scan clean).
 - [x] Documentation complete: `README.md`, `docs/JUDGE_GUIDE.md`, `docs/CLAIMS.md`, `docs/ARCHITECTURE.md`, `docs/INVARIANTS.md`, `docs/TESTING.md`, `docs/MANUAL_TEST_PLAN.md`, `docs/PAYPAL_REVIEW.md`, `docs/RUNBOOK.md`, `docs/DEPLOY_CLOUD_RUN.md`, `docs/POST_DEPLOY_CHECKLIST.md`, `docs/VIDEO_SCRIPT.md`, `docs/SCREENSHOTS.md`, `docs/SUBMISSION.md`, and `docs/RELEASE_NOTES.md`.
-- [ ] Record 3-minute demo video following [`docs/VIDEO_SCRIPT.md`](VIDEO_SCRIPT.md).
-- [ ] Capture 8 screenshots following [`docs/SCREENSHOTS.md`](SCREENSHOTS.md).
-- [ ] Submit repository URL, deployed Cloud Run URL (or demo video link), and submission text on the hackathon portal.
+- [x] Captured motion-graphics demo video (`churnrescue-ai-demo.mp4` / `.webm`) following [`docs/VIDEO_SCRIPT.md`](VIDEO_SCRIPT.md).
+- [x] Captured 8 screenshots (`01`–`08`) following [`docs/SCREENSHOTS.md`](SCREENSHOTS.md).
+- [ ] Submit repository URL (`https://github.com/Abhinav-2002/churnrescue-ai`), deployed Cloud Run URL (`https://churnrescue-ai-550444407405.us-central1.run.app`), demo video, and submission text on the hackathon portal.
