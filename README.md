@@ -17,11 +17,12 @@ ChurnRescue AI is an agentic involuntary-churn and failed-renewal recovery platf
 
 ## 🎬 Demo Video
 
-A full 70-second motion-graphics and interaction walkthrough demonstrating failure simulation, AI concession negotiation, deterministic floor clamping, native PayPal Checkout capture, 2-step pause confirmation, human escalation, and live telemetry is available:
+https://github.com/user-attachments/assets/9c62d6ab-42d6-4ca0-a421-deda618ac000
 
-- 📥 **[Watch / Download Demo Video (`churnrescue-ai-demo.mp4`)](https://github.com/Abhinav-2002/churnrescue-ai/releases/download/v1.0.0/churnrescue-ai-demo.mp4)**  
-  *(Note: GitHub release assets are downloadable MP4 files [17.89 MB, 1080p, 70.0s]. Download and open in your local media player or browser).*
+*Watch the 70-second end-to-end recovery walkthrough: renewal failure simulation $\to$ AI concession negotiation $\to$ deterministic 50% floor clamp $\to$ native PayPal Orders v2 sandbox checkout $\to$ Charlie Brown 2-step pause confirmation $\to$ Diana Prince human escalation $\to$ live operations telemetry.*
+
 - 📦 **[GitHub Release Page (`v1.0.0`)](https://github.com/Abhinav-2002/churnrescue-ai/releases/tag/v1.0.0)**
+- 📥 **[Download MP4 (`churnrescue-ai-demo.mp4`)](https://github.com/Abhinav-2002/churnrescue-ai/releases/download/v1.0.0/churnrescue-ai-demo.mp4)** (17.89 MB, 1080p, 70.0s)
 
 ---
 

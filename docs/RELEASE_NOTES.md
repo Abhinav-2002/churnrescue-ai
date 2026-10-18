@@ -7,6 +7,8 @@
 ---
 
 ## 1. Executive Summary
+ 
+https://github.com/user-attachments/assets/9c62d6ab-42d6-4ca0-a421-deda618ac000
 
 `v1.0.0` completes the **ChurnRescue AI** autonomous subscription payment-recovery agent, deterministic policy guardrail engine, PayPal Checkout v6 + Orders v2 Sandbox integration, Dashboard v2 zero-PII analytics contract, multi-visitor demo isolation (`Stage R1`), production hardening (`Stage R2`), Cloud Run containerization (`Stage R3`), automated post-deploy smoke verification (`Stage R4`), comprehensive documentation (`Stage R5`), and submission assets (`Stage R6`).
 
