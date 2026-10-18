@@ -63,9 +63,25 @@ export function ChatWidget() {
   const [loading, setLoading] = useState(false);
   const [typing, setTyping] = useState(false);
   const [systemMsg, setSystemMsg] = useState<{ kind: string, text: string } | null>(null);
+  const [runtimeClientId, setRuntimeClientId] = useState<string>(
+    process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID || ''
+  );
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const startAttempted = useRef(false);
+
+  useEffect(() => {
+    if (!runtimeClientId && isOpen) {
+      fetch('/api/config')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.paypalClientId) {
+            setRuntimeClientId(data.paypalClientId);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [runtimeClientId, isOpen]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -236,7 +252,7 @@ export function ChatWidget() {
     }
   }
 
-  const clientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID || 'test';
+  const clientId = runtimeClientId || process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID || 'test';
 
   if (!isOpen) {
     return (
