@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { resolveAppBaseUrl } from './config';
 
 let cachedAccessToken: string | null = null;
 let tokenExpiryTime: number = 0;
@@ -42,19 +43,26 @@ export async function getAccessToken(): Promise<string> {
   return cachedAccessToken!;
 }
 
-export async function createOrder(amountCents: number, currency: string = 'USD', referenceId?: string, customRequestId?: string) {
+export async function createOrder(
+  amountCents: number,
+  currency: string = 'USD',
+  referenceId?: string,
+  customRequestId?: string,
+  requestOrigin?: string
+) {
   const baseURL = process.env.PAYPAL_BASE_URL;
   const accessToken = await getAccessToken();
   const value = (amountCents / 100).toFixed(2);
   const requestId = customRequestId || crypto.randomUUID();
+  const appBaseUrl = resolveAppBaseUrl(requestOrigin);
 
   const payload = {
     intent: 'CAPTURE',
     payment_source: {
       paypal: {
         experience_context: {
-          return_url: 'http://localhost:3000/return', // placeholder
-          cancel_url: 'http://localhost:3000/cancel', // placeholder
+          return_url: `${appBaseUrl}/return`,
+          cancel_url: `${appBaseUrl}/cancel`,
           user_action: 'PAY_NOW'
         }
       }
