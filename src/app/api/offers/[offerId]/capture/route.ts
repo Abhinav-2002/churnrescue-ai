@@ -17,6 +17,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ offerId
       return NextResponse.json({ error: 'Offer not found' }, { status: 404 });
     }
 
+    if (offer.is_sample === 1) {
+      return NextResponse.json({ error: 'sample_offer_not_capturable' }, { status: 400 });
+    }
+
     if (offer.status === 'captured') {
       return NextResponse.json({ success: true, status: 'captured' });
     }

@@ -33,6 +33,15 @@ export interface KpiTotals {
   escalated: number;
   average_discount: number;
   median_hours_to_recovery: number;
+  includes_sample?: boolean;
+  live_failed_events?: number;
+  sample_failed_events?: number;
+  live_failed_cents?: number;
+  sample_failed_cents?: number;
+  live_recovered_cents?: number;
+  sample_recovered_cents?: number;
+  live_recoveries_count?: number;
+  sample_recoveries_count?: number;
 }
 
 export interface DailySeriesPoint {

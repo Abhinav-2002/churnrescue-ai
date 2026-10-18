@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     if (!customer) return NextResponse.json({ error: 'customer_not_found' }, { status: 404 });
     if (customer.status === 'healthy') return NextResponse.json({ error: 'customer_healthy' }, { status: 400 });
 
-    const billingEvent = db.prepare(`SELECT id FROM billing_events WHERE customer_id = ? AND status = 'failed' ORDER BY created_at DESC LIMIT 1`).get(customerId) as any;
+    const billingEvent = db.prepare(`SELECT id FROM billing_events WHERE customer_id = ? AND status = 'failed' AND is_sample = 0 ORDER BY created_at DESC LIMIT 1`).get(customerId) as any;
     if (!billingEvent) return NextResponse.json({ error: 'no_failed_billing_event' }, { status: 400 });
     billingEventToCleanup = billingEvent.id;
 
@@ -68,7 +68,7 @@ export async function POST(req: Request) {
 
     const lastMsg = out.messages[out.messages.length - 1].content;
     const dbOut = getDb();
-    const latestOffer = dbOut.prepare('SELECT * FROM offers WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customerId) as any;
+    const latestOffer = dbOut.prepare('SELECT * FROM offers WHERE customer_id = ? AND is_sample = 0 ORDER BY created_at DESC, rowid DESC LIMIT 1').get(customerId) as any;
     
     let nextStep = 'none';
     let responseObj: any = { reply: lastMsg, nextStep };

@@ -48,13 +48,13 @@
 | **Recovery Funnel** | Stage 3: Accepted | `COUNT(DISTINCT billing_event_id)` FROM `offers` WHERE `status = 'accepted'` (including pause offers) in range | Events where customer accepted the terms | `"0 (0%)"` | `test_funnel_stage_accepted_count` |
 | **Recovery Funnel** | Stage 4: Paid | `COUNT(DISTINCT billing_event_id)` FROM `recoveries` in range | Events where payment was captured or account preserved | `"0 (0%)"` | `test_funnel_stage_paid_count` |
 | **Recovery Funnel** | Stage Filter Interaction | `onClick` / `Enter` on funnel bar | Sets active customer table filter `filterStage = stage.id`. Updates filter indicator chip | N/A | `test_funnel_filter_interaction` |
-| **Guardrails** | Pricing Adjustments | `COUNT(*)` FROM `agent_actions` WHERE `details_json.proposed_discount_percent > details_json.approved_discount_percent` | Number of times code clamped model's requested discount down to ladder cap | `"0"` | `test_guardrails_discount_capped_count` |
+| **Guardrails** | Pricing Adjustments | `COUNT(*)` FROM `agent_actions` WHERE `action = 'partial_credit'` AND `details_json.approved_discount_percent > 0` | Number of times the deterministic code concession ladder assigned a discount tier (20% → 35% → 50%; the model cannot propose prices) | `"0"` | `test_guardrails_discount_capped_count` |
 | **Guardrails** | Blocked Suggestions | `COUNT(*)` FROM `agent_actions` WHERE `details_json.clamps` contains `'retry'` or invalid action | Number of times invalid actions or excessive usage was forced to retry | `"0"` | `test_guardrails_forced_retry_count` |
 | **Guardrails** | Escalated by Keyword | `COUNT(*)` FROM `agent_actions` WHERE `details_json.clamps` contains `'forced escalate by keyword rule'` | Mandatory escalations triggered by legal/fraud/dispute keywords | `"0"` | `test_guardrails_escalated_by_keyword_count` |
 | **Guardrails** | Template Enforced | `COUNT(*)` FROM `agent_actions` WHERE `details_json.clamps` contains `'template_used'` or fallback | Fallbacks invoked when model output omitted numbers or failed schema | `"0"` | `test_guardrails_template_used_count` |
 | **Guardrails** | Decisions Checked | `COUNT(*)` FROM `agent_actions` in range | Total deterministic guardrail evaluations executed by code | `"0"` | `test_guardrails_total_checks_count` |
 | **Guardrails** | Policy Audit | Server-side pure function re-evaluating every stored non-superseded offer against guardrail invariants | Reports `"N audited, M outside policy"`. If `M > 0`, clicking exposes list of violating offer IDs | `"0 audited, 0 outside policy"` | `test_guardrails_policy_audit_verification` |
-| **Guardrails** | Latest Numerical Clamp | Most recent `agent_actions` row with clamp numbers | Text summary formatted strictly with numbers: `"Model proposed X%, code allowed Y%"` | `"No adjustments required"` | `test_guardrails_latest_clamp_numbers_only` |
+| **Guardrails** | Latest Numerical Clamp | Most recent `agent_actions` row with code ladder discount | Text summary formatted strictly with numbers: `"Code ladder assigned X% discount (step Y)"` | `"No adjustments required"` | `test_guardrails_latest_clamp_numbers_only` |
 | **Human Queue** | Queue Rows | Joined `customers`, `billing_events`, `agent_actions` WHERE action is `'escalate'` or status is `'at_risk'` | List of customers requiring human takeover, sorted by severity then recency | `"No customers requiring human intervention"` | `test_human_queue_rows_population` |
 | **Human Queue** | Row: Customer Name | `customers.name` | Customer full name (NO EMAIL) | N/A | `test_human_queue_name_no_email` |
 | **Human Queue** | Row: Reason Category | Fixed enum mapped from stored clamps (`dispute`, `chargeback`, `legal`, `fraud`, `human_requested`, `frustration`, `repeat_cancel`) | Categorized reason derived from `detectEscalation` pattern match | `"General review"` | `test_human_queue_reason_enum_mapping` |
@@ -235,8 +235,8 @@ Stages are defined as **nested sets of unique customers**, ensuring monotonicity
   - When $M > 0$: Displays an amber warning button `"M outside policy"`. Clicking opens a modal/popover listing **only the violating Offer IDs** (`off_...`).
   - **Privacy Guarantee**: Under no circumstances are customer names, emails, or free text displayed in violation lists.
 - **Numerical Example**:
-  - Text: `"Model proposed 50%, code allowed 20%"`.
-  - Grounding: Extracted from actual stored clamps where `proposed_discount_percent` was clamped by code. If no clamped record exists in the database, this is labelled as a specification illustrative example.
+  - Text: `"Code ladder assigned 20% discount (step 0)"`.
+  - Grounding: Extracted from actual stored decisions where `approved_discount_percent` was deterministically assigned by the code concession ladder (`proposalSchema` excludes discount proposals so the LLM cannot propose prices).
 
 ---
 
@@ -366,7 +366,7 @@ Every stated invariant must have its own named unit or integration test:
 | Donut: Strategy Slices | **Retained & Enhanced** | Slices for Retry, Credit, Downgrade, Pause, Escalate with click-to-filter. |
 | Recovery Funnel: 4 Stages | **Retained** | Monotonic non-increasing pipeline with stage-click filtering. |
 | Guardrails: "Policy compliance 100%" | **Enhanced** | Upgraded from static claim to a **COMPUTED policy audit** that re-evaluates all stored offers. |
-| Guardrails: Numerical Example | **Retained** | Displays `"Model proposed 50%, code allowed 20%"` when backed by clamp data. |
+| Guardrails: Numerical Example | **Retained** | Displays `"Code ladder assigned 20% discount (step 0)"` when backed by code ladder data. |
 | Human Queue: Customer Rows | **Retained** | Filtered by severity and recency. Customer name, failed amount, time elapsed. |
 | Human Queue: Subtitle/Reasons | **Standardized** | Mapped to fixed reason enums from stored clamps. |
 | Table: Email Address (`rohan@company.com`) | **DROPPED** | Strictly dropped for privacy (Rule 19: NO emails in dashboard API or UI). |

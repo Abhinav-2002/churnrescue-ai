@@ -275,7 +275,7 @@ describe('Metrics Endpoint v2', () => {
     // Guardrail summary
     expect(json.guardrail_summary.pricing_adjustments).toBe(1);
     expect(json.guardrail_summary.escalated_by_keyword).toBe(1);
-    expect(json.guardrail_summary.latest_clamp_summary).toBe('Model proposed 50%, code allowed 20%');
+    expect(json.guardrail_summary.latest_clamp_summary).toBe('Code ladder assigned 20% discount (step 0)');
 
     // Policy audit
     expect(json.policy_audit.total_audited).toBe(1);

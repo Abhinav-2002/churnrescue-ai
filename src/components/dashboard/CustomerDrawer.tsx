@@ -9,6 +9,7 @@ interface CustomerDrawerProps {
   decisions?: DecisionMetricRow[];
   offers?: OfferMetricRow[];
   onClose: () => void;
+  onResetCustomer?: (customerId: string) => void;
   triggerRef?: React.RefObject<HTMLElement | null>;
 }
 
@@ -19,6 +20,7 @@ export function CustomerDrawer({
   decisions = [],
   offers = [],
   onClose,
+  onResetCustomer,
   triggerRef,
 }: CustomerDrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null);
@@ -224,11 +226,20 @@ export function CustomerDrawer({
           </div>
 
           {/* Footer */}
-          <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60">
+          <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 flex items-center gap-2">
+            {onResetCustomer && customerId && (
+              <button
+                type="button"
+                onClick={() => onResetCustomer(customerId)}
+                className="flex-1 py-2 text-xs font-semibold rounded-lg border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/60 transition-colors cursor-pointer"
+              >
+                Reset Customer Only
+              </button>
+            )}
             <button
               type="button"
               onClick={onClose}
-              className="w-full py-2 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              className="flex-1 py-2 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             >
               Close Drawer (Esc)
             </button>

@@ -29,7 +29,7 @@ export async function GET(req: Request) {
     let orderId = null;
     let amountCents = null;
 
-    const offer = db.prepare(`SELECT * FROM offers WHERE customer_id = ? AND status IN ('pending', 'accepted', 'capturing', 'needs_review') ORDER BY created_at DESC LIMIT 1`).get(customerId) as any;
+    const offer = db.prepare(`SELECT * FROM offers WHERE customer_id = ? AND status IN ('pending', 'accepted', 'capturing', 'needs_review') AND is_sample = 0 ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(customerId) as any;
 
     if (offer) {
       if (offer.status === 'accepted' || offer.status === 'capturing' || offer.status === 'needs_review') {
@@ -48,7 +48,7 @@ export async function GET(req: Request) {
     }
 
     if (nextStep === 'none' && customer.status === 'at_risk') {
-      const escCount = db.prepare('SELECT COUNT(*) as c FROM agent_actions WHERE customer_id = ? AND action = ?').get(customerId, 'escalate') as any;
+      const escCount = db.prepare('SELECT COUNT(*) as c FROM agent_actions WHERE customer_id = ? AND action = ? AND is_sample = 0').get(customerId, 'escalate') as any;
       if (escCount.c > 0) {
         nextStep = 'escalated';
       }
@@ -56,7 +56,7 @@ export async function GET(req: Request) {
 
     let recoveredAmountCents = null;
     if (customer.status === 'recovered') {
-      const rec = db.prepare('SELECT recovered_amount_cents FROM recoveries WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1').get(customerId) as any;
+      const rec = db.prepare('SELECT recovered_amount_cents FROM recoveries WHERE customer_id = ? AND is_sample = 0 ORDER BY created_at DESC LIMIT 1').get(customerId) as any;
       if (rec) {
         recoveredAmountCents = rec.recovered_amount_cents;
       }

@@ -455,7 +455,7 @@ describe('Fix Pack Tests: Dashboard Truthfulness', () => {
       escalated_by_keyword: 2,
       template_enforced: 1,
       total_checks: 19,
-      latest_clamp_summary: 'Model proposed 50%, code allowed 20%'
+      latest_clamp_summary: 'Code ladder assigned 20% discount (step 0)'
     };
     render(<GuardrailsPanel summary={summary} audit={{ total_audited: 5, outside_policy_count: 0, violating_offer_ids: [] }} />);
 
@@ -464,7 +464,7 @@ describe('Fix Pack Tests: Dashboard Truthfulness', () => {
     expect(screen.getByText('Keyword Escalation')).toBeTruthy();
     expect(screen.getByText('Template Used')).toBeTruthy();
 
-    expect(screen.getByText("Decisions where a proposed discount was lowered to stay within policy limits.")).toBeTruthy();
+    expect(screen.getByText("Discounts deterministically assigned by the code concession ladder (20% → 35% → 50%); the model cannot propose prices.")).toBeTruthy();
     expect(screen.getByText("The code replaced the model's proposed action with a retry.")).toBeTruthy();
     expect(screen.getByText("Decisions where compliance or dispute keywords triggered an immediate handoff to human support.")).toBeTruthy();
     expect(screen.getByText("The model's wording was rejected and a safe template used.")).toBeTruthy();
