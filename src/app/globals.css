@@ -1,8 +1,148 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #0f172a;
+
+  /* Design System Surfaces */
+  --surface-base: #ffffff;
+  --surface-card: #ffffff;
+  --surface-muted: #f8fafc;
+
+  /* Typography / Text */
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-inverse: #ffffff;
+
+  /* Borders */
+  --border-neutral: #64748b;
+  --border-subtle: #cbd5e1;
+
+  /* Semantics: Green / Recovered */
+  --recovered-bg: #ecfdf5;
+  --recovered-fg: #065f46;
+  --recovered-border: #047857;
+
+  /* Semantics: Red / Failed */
+  --failed-bg: #fef2f2;
+  --failed-fg: #991b1b;
+  --failed-border: #b91c1c;
+
+  /* Semantics: Blue / Offered */
+  --offered-bg: #eff6ff;
+  --offered-fg: #1e40af;
+  --offered-border: #1d4ed8;
+
+  /* Semantics: Amber / Paused */
+  --paused-bg: #fffbeb;
+  --paused-fg: #78350f;
+  --paused-border: #b45309;
+
+  /* Semantics: Violet / Agent */
+  --agent-bg: #f5f3ff;
+  --agent-fg: #5b21b6;
+  --agent-border: #6d28d9;
+
+  /* Spacing Scale */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --background: #0a0a0a;
+    --foreground: #f8fafc;
+
+    /* Design System Surfaces */
+    --surface-base: #0a0a0a;
+    --surface-card: #111827;
+    --surface-muted: #1e293b;
+
+    /* Typography / Text */
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-inverse: #0a0a0a;
+
+    /* Borders */
+    --border-neutral: #64748b;
+    --border-subtle: #475569;
+
+    /* Semantics: Green / Recovered */
+    --recovered-bg: #064e3b;
+    --recovered-fg: #6ee7b7;
+    --recovered-border: #34d399;
+
+    /* Semantics: Red / Failed */
+    --failed-bg: #450a0a;
+    --failed-fg: #fca5a5;
+    --failed-border: #f87171;
+
+    /* Semantics: Blue / Offered */
+    --offered-bg: #172554;
+    --offered-fg: #93c5fd;
+    --offered-border: #60a5fa;
+
+    /* Semantics: Amber / Paused */
+    --paused-bg: #451a03;
+    --paused-fg: #fcd34d;
+    --paused-border: #fbbf24;
+
+    /* Semantics: Violet / Agent */
+    --agent-bg: #2e1065;
+    --agent-fg: #c4b5fd;
+    --agent-border: #a78bfa;
+  }
+}
+
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #f8fafc;
+
+  /* Design System Surfaces */
+  --surface-base: #0a0a0a;
+  --surface-card: #111827;
+  --surface-muted: #1e293b;
+
+  /* Typography / Text */
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-inverse: #0a0a0a;
+
+  /* Borders */
+  --border-neutral: #64748b;
+  --border-subtle: #475569;
+
+  /* Semantics: Green / Recovered */
+  --recovered-bg: #064e3b;
+  --recovered-fg: #6ee7b7;
+  --recovered-border: #34d399;
+
+  /* Semantics: Red / Failed */
+  --failed-bg: #450a0a;
+  --failed-fg: #fca5a5;
+  --failed-border: #f87171;
+
+  /* Semantics: Blue / Offered */
+  --offered-bg: #172554;
+  --offered-fg: #93c5fd;
+  --offered-border: #60a5fa;
+
+  /* Semantics: Amber / Paused */
+  --paused-bg: #451a03;
+  --paused-fg: #fcd34d;
+  --paused-border: #fbbf24;
+
+  /* Semantics: Violet / Agent */
+  --agent-bg: #2e1065;
+  --agent-fg: #c4b5fd;
+  --agent-border: #a78bfa;
 }
 
 @theme inline {
@@ -12,15 +152,16 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* Tabular Numerals for Financial Polish */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }

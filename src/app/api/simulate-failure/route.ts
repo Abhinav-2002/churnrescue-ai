@@ -41,6 +41,7 @@ export async function POST(request: Request) {
     const issue = body?.details?.[0]?.issue;
     
     if (status === 422 && issue === 'INSTRUMENT_DECLINED') {
+      db.prepare('DELETE FROM conversations WHERE customer_id = ?').run(customerId);
       const result = handlePaymentFailed({
         customerId,
         billingEventId,

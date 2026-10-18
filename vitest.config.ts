@@ -7,4 +7,8 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  test: {
+    pool: 'forks',
+    setupFiles: ['./tests/setup.ts'],
+  },
 });
