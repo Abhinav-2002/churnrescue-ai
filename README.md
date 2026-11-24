@@ -1,6 +1,6 @@
 # ChurnRescue AI
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-Cloud%20Run-brightgreen?style=flat-square&logo=googlecloud)](https://churnrescue-ai-550444407405.us-central1.run.app)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Render-brightgreen?style=flat-square&logo=render)](https://churnrescue-ai.onrender.com)
 [![Release](https://img.shields.io/badge/Release-v1.0.0-blue?style=flat-square&logo=github)](https://github.com/Abhinav-2002/churnrescue-ai/releases/tag/v1.0.0)
 [![Tests](https://img.shields.io/badge/Tests-35%20passed%20·%20266%20tests-success?style=flat-square)](docs/TESTING.md)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
@@ -9,9 +9,9 @@
 
 ChurnRescue AI is an agentic involuntary-churn and failed-renewal recovery platform. It rescues lost subscription revenue by engaging customers immediately upon billing failure with empathetic, LLM-powered conversational assistance—backed by **deterministic financial guardrails** that cannot hallucinate pricing, skip policy steps, or bypass payment verification.
 
-- 🌐 **Verified Hosted Demo:** [https://churnrescue-ai-550444407405.us-central1.run.app](https://churnrescue-ai-550444407405.us-central1.run.app)
-- 📊 **Analytics Dashboard:** [https://churnrescue-ai-550444407405.us-central1.run.app/dashboard](https://churnrescue-ai-550444407405.us-central1.run.app/dashboard)
-- 🛠️ **Admin & Simulator View:** [https://churnrescue-ai-550444407405.us-central1.run.app/admin](https://churnrescue-ai-550444407405.us-central1.run.app/admin)
+- 🌐 **Verified Hosted Demo:** [https://churnrescue-ai.onrender.com](https://churnrescue-ai.onrender.com)
+- 📊 **Analytics Dashboard:** [https://churnrescue-ai.onrender.com/dashboard](https://churnrescue-ai.onrender.com/dashboard)
+- 🛠️ **Admin & Simulator View:** [https://churnrescue-ai.onrender.com/admin](https://churnrescue-ai.onrender.com/admin)
 
 ---
 
@@ -195,7 +195,7 @@ npx tsx scripts/smoke.ts
 - **Node.js:** `>= 22.0.0` (tested on `v22.17.0`).
 - **Native Addon Note (`D0` · `better-sqlite3`):**
   - `better-sqlite3@13.0.3` includes `binding.gyp`. When installing on native Windows, ensure [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the **"Desktop development with C++"** workload and Python 3.10+ are installed.
-  - *Zero-Toolchain Alternative:* Run via **Docker** (`docker build -t churnrescue-ai .`), **WSL2 Ubuntu**, or access the hosted [Google Cloud Run Demo](https://churnrescue-ai-550444407405.us-central1.run.app).
+  - *Zero-Toolchain Alternative:* Run via **Docker** (`docker build -t churnrescue-ai .`), **WSL2 Ubuntu**, or access the hosted [Google Cloud Run Demo](https://churnrescue-ai.onrender.com).
 
 ### Setup Instructions
 1. **Clone repository:**
