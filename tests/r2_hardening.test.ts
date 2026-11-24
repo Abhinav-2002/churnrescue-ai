@@ -6,7 +6,7 @@ import { GET as healthGET } from '../src/app/api/health/route';
 import { GET as readyGET } from '../src/app/api/ready/route';
 import { GET as debugGET } from '../src/app/api/debug/route';
 import { closeDb, getDb, resetDb } from '../src/lib/db';
-import { invokeWithTimeoutAndRetry } from '../src/lib/agent/llm';
+import { invokeWithTimeoutAndRetry, resolveLlmProvider } from '../src/lib/agent/llm';
 import nextConfig, { SECURITY_HEADERS, PAYPAL_CSP_REPORT_ONLY } from '../next.config';
 
 describe('Stage R2 (r2-hardening): Config Validation, Redacting Logger, Health/Ready, Security Headers, LLM Retry', () => {
@@ -192,5 +192,26 @@ describe('Stage R2 (r2-hardening): Config Validation, Redacting Logger, Health/R
     expect(bodyOn.allHeaderNames).not.toContain('authorization');
     expect(bodyOn.allHeaderNames).not.toContain('cookie');
     expect(bodyOn.ipHeaders['x-forwarded-for']).toBe('203.0.113.5');
+  });
+
+  it('8. Supports free Google AI Studio GEMINI_API_KEY without GCP project and Render RENDER_EXTERNAL_URL', () => {
+    const geminiOnlyEnv: NodeJS.ProcessEnv = {
+      NODE_ENV: 'test',
+      GEMINI_API_KEY: 'AIzaSyTestFakeGeminiKey12345678901234',
+      PAYPAL_CLIENT_ID: 'client_123',
+      PAYPAL_CLIENT_SECRET: 'secret_123',
+      PAYPAL_BASE_URL: SANDBOX_PAYPAL_URL,
+    };
+
+    const res = validateConfig(geminiOnlyEnv);
+    expect(res.valid).toBe(true);
+    expect(res.missingOrInvalidKeys).toEqual([]);
+    expect(res.config?.LLM_MODEL).toBe('gemini-2.5-flash-lite');
+    expect(resolveLlmProvider(geminiOnlyEnv)).toBe('google_ai_studio');
+    expect(resolveLlmProvider({ NODE_ENV: 'test', GOOGLE_CLOUD_PROJECT: 'proj-1' })).toBe('vertex_ai');
+
+    delete process.env.APP_BASE_URL;
+    process.env.RENDER_EXTERNAL_URL = 'https://churnrescue-ai.onrender.com/';
+    expect(resolveAppBaseUrl()).toBe('https://churnrescue-ai.onrender.com');
   });
 });

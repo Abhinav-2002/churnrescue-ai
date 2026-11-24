@@ -1,13 +1,23 @@
 import { ChatVertexAI } from '@langchain/google-vertexai';
+import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 
 export const DEFAULT_LLM_TIMEOUT_MS = 15000;
+export const DEFAULT_GEMINI_API_MODEL = 'gemini-2.5-flash-lite';
+export const DEFAULT_VERTEX_MODEL = 'gemini-3.5-flash-lite';
 
 declare global {
   var _llmStartupLogged: boolean | undefined;
 }
 
-export function logLlmStartupOnce(modelId?: string): { model: string; location: string } {
-  const model = modelId || process.env.LLM_MODEL || 'gemini-3.5-flash-lite';
+export function resolveLlmProvider(env: NodeJS.ProcessEnv = process.env): 'google_ai_studio' | 'vertex_ai' {
+  const apiKey = env.GEMINI_API_KEY?.trim() || env.GOOGLE_API_KEY?.trim();
+  return apiKey ? 'google_ai_studio' : 'vertex_ai';
+}
+
+export function logLlmStartupOnce(modelId?: string): { model: string; location: string; provider: 'google_ai_studio' | 'vertex_ai' } {
+  const provider = resolveLlmProvider();
+  const defaultModel = provider === 'google_ai_studio' ? DEFAULT_GEMINI_API_MODEL : DEFAULT_VERTEX_MODEL;
+  const model = modelId || process.env.LLM_MODEL || defaultModel;
   const location = process.env.GOOGLE_CLOUD_LOCATION || 'global';
   if (!globalThis._llmStartupLogged) {
     globalThis._llmStartupLogged = true;
@@ -15,13 +25,14 @@ export function logLlmStartupOnce(modelId?: string): { model: string; location: 
       console.log(
         JSON.stringify({
           event: 'llm_startup_config',
+          llm_provider: provider,
           llm_model: model,
           google_cloud_location: location,
         })
       );
     }
   }
-  return { model, location };
+  return { model, location, provider };
 }
 
 export async function invokeWithTimeoutAndRetry<T>(
@@ -46,8 +57,18 @@ export async function invokeWithTimeoutAndRetry<T>(
   throw lastError;
 }
 
-export function getLlm(modelId: string) {
-  const { model, location } = logLlmStartupOnce(modelId);
+export function getLlm(modelId?: string) {
+  const { model, location, provider } = logLlmStartupOnce(modelId);
+
+  if (provider === 'google_ai_studio') {
+    const apiKey = (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+    return new ChatGoogleGenerativeAI({
+      apiKey,
+      model,
+      maxRetries: 1,
+    });
+  }
+
   const credentialsJson = process.env.GOOGLE_CREDENTIALS_JSON;
   let credentials: any = undefined;
   if (credentialsJson) {
