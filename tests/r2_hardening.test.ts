@@ -206,7 +206,7 @@ describe('Stage R2 (r2-hardening): Config Validation, Redacting Logger, Health/R
     const res = validateConfig(geminiOnlyEnv);
     expect(res.valid).toBe(true);
     expect(res.missingOrInvalidKeys).toEqual([]);
-    expect(res.config?.LLM_MODEL).toBe('gemini-2.5-flash-lite');
+    expect(res.config?.LLM_MODEL).toBe('gemini-3.5-flash-lite');
     expect(resolveLlmProvider(geminiOnlyEnv)).toBe('google_ai_studio');
     expect(resolveLlmProvider({ NODE_ENV: 'test', GOOGLE_CLOUD_PROJECT: 'proj-1' })).toBe('vertex_ai');
 

@@ -2,7 +2,7 @@ import { ChatVertexAI } from '@langchain/google-vertexai';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 
 export const DEFAULT_LLM_TIMEOUT_MS = 15000;
-export const DEFAULT_GEMINI_API_MODEL = 'gemini-2.5-flash-lite';
+export const DEFAULT_GEMINI_API_MODEL = 'gemini-3.5-flash-lite';
 export const DEFAULT_VERTEX_MODEL = 'gemini-3.5-flash-lite';
 
 declare global {
